@@ -25,27 +25,13 @@ int128-conftest-docker-hub-image-pull-secrets/
 
 ## Input-schema compatibility
 
-Standard conftest shape — a parsed Kubernetes YAML manifest as `input`:
-
-```rego
-input.kind                                         # Deployment, Job, StatefulSet, DaemonSet
-input.metadata.name
-input.spec.template.spec.containers[_].image
-input.spec.template.spec.imagePullSecrets[_]
-```
-
-Purely local: no cluster calls, no network.
-
-Under Vulnetix CLI (`input.file_contents`), the rule loads but needs an adapter that parses each `*.yaml` manifest and evaluates against it.
+**Ported** from the Conftest-parsed-YAML shape to the Vulnetix `input.file_contents` text-scanning shape. The adapted rule splits each YAML file on `---` separators and inspects each document for `kind:`, `imagePullSecrets:`, and `image:` fields via regex.
 
 ## Using with the Vulnetix CLI
 
 ```bash
-# Loads cleanly; adapter required to feed parsed K8s YAML as input.
+# Loads and emits findings directly under the Vulnetix CLI.
 vulnetix scan --rule Vulnetix/community-rules
-
-# Direct use via conftest (upstream):
-conftest test --policy rules/int128-conftest-docker-hub-image-pull-secrets ./manifests
 ```
 
 ## Attribution
