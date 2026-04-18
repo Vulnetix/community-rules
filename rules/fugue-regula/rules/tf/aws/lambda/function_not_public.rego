@@ -1,58 +1,40 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-package rules.tf_aws_lambda_function_not_public
+# Adapted from https://github.com/fugue/regula (FG_R00276).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
+# Simplified: flags aws_lambda_permission with principal = "*".
 
-import data.fugue
-import data.aws.lambda.permissions_library as lib
+package vulnetix.rules.fugue_tf_aws_lmb_01
 
-# Lambda function policies should not allow global access
-#
-# aws_lambda_permission
-# aws_lambda_function
+import rego.v1
 
-__rego__metadoc__ := {
-  "custom": {
-    "severity": "High"
-  },
-  "description": "Lambda function policies should not allow global access. Publicly accessible lambda functions may be runnable by anyone and could drive up your costs, disrupt your services, or leak your data.",
-  "id": "FG_R00276",
-  "title": "Lambda function policies should not allow global access"
+import data.vulnetix.fugue.tf
+
+metadata := {
+	"id": "FUGUE-TF-AWS-LMB-01",
+	"name": "Lambda function policies should not allow global access",
+	"description": "Publicly accessible Lambda functions may be runnable by anyone and could drive up costs, disrupt services, or leak data.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["terraform", "hcl"],
+	"severity": "high",
+	"level": "error",
+	"kind": "iac",
+	"cwe": ["CWE-284"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "aws", "lambda"],
 }
 
-resource_type := "MULTIPLE"
-
-message = "Lambda function policies should not allow global access"
-
-valid_permission(permission) {
-    is_string(permission.principal)
-    permission.principal != "*"
-}
-
-policy[j] {
-  func = lib.funcs_by_key[k][_]
-  not lib.perm_by_key[k]
-  j = fugue.allow_resource(func)
-} {
-  permission = lib.permissions[_]
-  valid_permission(permission)
-  k = lib.permission_key(permission)
-  f = lib.funcs_by_key[k][_]
-  j = fugue.allow_resource(f)
-} {
-  permission = lib.permissions[_]
-  not valid_permission(permission)
-  k = lib.permission_key(permission)
-  f = lib.funcs_by_key[k][_]
-  j = fugue.deny_resource_with_message(f, message)
+findings contains finding if {
+	some p in tf.resources("aws_lambda_permission")
+	tf.string_attr(p.block, "principal") == "*"
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("aws_lambda_permission %q grants principal = \"*\".", [p.name]),
+		"artifact_uri": p.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [p.type, p.name]),
+	}
 }

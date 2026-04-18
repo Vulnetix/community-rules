@@ -1,48 +1,49 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# Adapted from https://github.com/fugue/regula (FG_R00440).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-package rules.arm_storage_account_queue_logging
+package vulnetix.rules.fugue_arm_storage_account_queue_logging
 
-import data.fugue
+import rego.v1
 
-__rego__metadoc__ := {
-  "custom": {
-    "controls": {
-      "CIS-Azure_v1.3.0": [
-        "CIS-Azure_v1.3.0_3.3"
-      ]
-    },
-    "severity": "Medium"
-  },
-  "description": "Storage account read, write, and delete logging for Storage Queues is not enabled by default. Logging should be enabled so that users can monitor queues for security and performance issues.",
-  "id": "FG_R00440",
-  "title": "Storage Queue logging should be enabled for read, write, and delete requests"
+import data.vulnetix.fugue.arm
+
+metadata := {
+	"id": "FUGUE-ARM-SA-02",
+	"name": "Storage Queue logging should be enabled for read, write, and delete requests",
+	"description": "Storage account read, write, and delete logging for Storage Queues is not enabled by default. Logging should be enabled so that users can monitor queues for security and performance issues.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["json"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-778"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["arm", "azure", "storage", "logging"],
 }
 
-input_type := "arm"
-
-resource_type := "Microsoft.Storage/storageAccounts/queueServices/providers/diagnosticsettings"
-
-default allow = false
-
-allow {
-	enabled_log_categories := {lower(log.category) |
-		log := input.properties.logs[_]
+_all_logged(r) if {
+	cats := {lower(log.category) |
+		some log in object.get(r.resource.properties, "logs", [])
 		log.enabled == true
 	}
+	"storageread" in cats
+	"storagewrite" in cats
+	"storagedelete" in cats
+}
 
-	enabled_log_categories["storageread"]
-	enabled_log_categories["storagewrite"]
-	enabled_log_categories["storagedelete"]
+findings contains finding if {
+	some r in arm.resources("Microsoft.Storage/storageAccounts/queueServices/providers/diagnosticsettings")
+	not _all_logged(r)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("Storage queue diagnostic setting %q does not log all read/write/delete categories.", [r.resource.name]),
+		"artifact_uri": r.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s/%s", [r.resource.type, r.resource.name]),
+	}
 }

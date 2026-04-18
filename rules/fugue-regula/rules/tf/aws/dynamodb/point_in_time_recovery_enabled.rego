@@ -1,44 +1,44 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-package rules.tf_aws_dynamodb_point_in_time_recovery_enabled
+# Adapted from https://github.com/fugue/regula (FG_R00106).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-import data.fugue
+package vulnetix.rules.fugue_tf_aws_ddb_02
 
+import rego.v1
 
-__rego__metadoc__ := {
-  "custom": {
-    "severity": "Medium"
-  },
-  "description": "DynamoDB tables Point in Time Recovery should be enabled. Point in Time Recovery should be enabled on DynamoDB tables. If an organization allows AWS to automatically back up DDB data, AWS takes on the risk of handling it and the organization can limit its own backup storage.",
-  "id": "FG_R00106",
-  "title": "DynamoDB tables Point in Time Recovery should be enabled"
+import data.vulnetix.fugue.tf
+
+metadata := {
+	"id": "FUGUE-TF-AWS-DDB-02",
+	"name": "DynamoDB tables should enable Point in Time Recovery",
+	"description": "Point in Time Recovery should be enabled on DynamoDB tables to allow automatic backups and reduce the risk of data loss.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["terraform", "hcl"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-778"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "aws", "dynamodb", "backup"],
 }
 
-has_point_in_time_recovery_enabled(ddb) {
-  ddb.point_in_time_recovery[_].enabled == true
+findings contains finding if {
+	some r in tf.resources("aws_dynamodb_table")
+	not _pitr_enabled(r.block)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("DynamoDB table %q does not enable point_in_time_recovery.", [r.name]),
+		"artifact_uri": r.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }
 
-tables = fugue.resources("aws_dynamodb_table")
-
-resource_type := "MULTIPLE"
-
-policy[j] {
-  ddb = tables[_]
-  has_point_in_time_recovery_enabled(ddb)
-  j = fugue.allow_resource(ddb)
-} {
-  ddb = tables[_]
-  not has_point_in_time_recovery_enabled(ddb)
-  j = fugue.deny_resource(ddb)
+_pitr_enabled(block) if {
+	some pitr in tf.sub_blocks(block, "point_in_time_recovery")
+	tf.bool_attr(pitr, "enabled") == true
 }

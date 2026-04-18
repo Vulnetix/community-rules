@@ -1,59 +1,54 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# Adapted from https://github.com/fugue/regula (FG_R00481).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-package rules.k8s_role_wildcards
+package vulnetix.rules.fugue_k8s_role_wildcards
 
-import data.fugue
-import data.k8s
+import rego.v1
 
-__rego__metadoc__ := {
-  "custom": {
-    "severity": "High"
-  },
-  "description": "Roles and cluster roles should not use wildcards for resource, verb, or apiGroup entries. A wildcard resource entry matches all resources. A wildcard verb entry matches all actions. This violates the principle of least privilege, since roles should only grant access to those resources and actions which are necessary for the workload to function.",
-  "id": "FG_R00481",
-  "title": "Roles and cluster roles should not use wildcards for resource, verb, or apiGroup entries"
+import data.vulnetix.fugue.k8s
+
+metadata := {
+	"id": "FUGUE-K8S-RBAC-05",
+	"name": "Roles should not use wildcard entries",
+	"description": "Wildcard apiGroups/resources/verbs in Role or ClusterRule violate least privilege by matching everything.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["yaml"],
+	"severity": "high",
+	"level": "error",
+	"kind": "iac",
+	"cwe": ["CWE-269"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["kubernetes", "rbac", "least-privilege"],
 }
 
-input_type := "k8s"
-
-resource_type := "MULTIPLE"
-
-is_wildcard_rule(rule) {
-	rule.apiGroups[_] == "*"
+findings contains finding if {
+	some role in k8s.roles
+	_has_wildcard(role.doc)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("%s %q uses a wildcard in apiGroups/resources/verbs.", [role.doc.kind, role.doc.metadata.name]),
+		"artifact_uri": role.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s/%s", [role.doc.kind, role.doc.metadata.name]),
+	}
 }
 
-is_wildcard_rule(rule) {
-	rule.resources[_] == "*"
+_has_wildcard(role) if {
+	some r in role.rules
+	"*" in object.get(r, "apiGroups", [])
 }
 
-is_wildcard_rule(rule) {
-	rule.verbs[_] == "*"
+_has_wildcard(role) if {
+	some r in role.rules
+	"*" in object.get(r, "resources", [])
 }
 
-is_invalid(role) {
-	is_wildcard_rule(role.rules[_])
-}
-
-policy[j] {
-	role := k8s.roles[_]
-	not is_invalid(role)
-	j = fugue.allow_resource(role)
-}
-
-policy[j] {
-	role := k8s.roles[_]
-	is_invalid(role)
-	j = fugue.deny_resource(role)
+_has_wildcard(role) if {
+	some r in role.rules
+	"*" in object.get(r, "verbs", [])
 }

@@ -1,57 +1,45 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-package rules.tf_aws_iam_password_pci_compliant
+# Adapted from https://github.com/fugue/regula (FG_R00086).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-import data.fugue
+package vulnetix.rules.fugue_tf_aws_iam_08
 
+import rego.v1
 
-__rego__metadoc__ := {
-  "custom": {
-    "severity": "Medium"
-  },
-  "description": "IAM password policies should have a minimum length of 7 and include both alphabetic and numeric characters. IAM password policies are used to enforce password complexity requirements and increase account resiliency against brute force login attempts. Password policies should require passwords to be at least 7 characters long and include both alphabetic and numeric characters.",
-  "id": "FG_R00086",
-  "title": "IAM password policies should have a minimum length of 7 and include both alphabetic and numeric characters"
+import data.vulnetix.fugue.tf
+
+metadata := {
+	"id": "FUGUE-TF-AWS-IAM-08",
+	"name": "IAM password policies should be PCI compliant",
+	"description": "Password policies should require passwords to be at least 7 characters long and include both alphabetic and numeric characters.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["terraform", "hcl"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-521"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "aws", "iam", "password", "pci"],
 }
 
-password_policy_type = "aws_iam_account_password_policy"
-
-password_policies = fugue.resources(password_policy_type)
-exists_password_policy {
-  _ = password_policies[_]
+findings contains finding if {
+	some r in tf.resources("aws_iam_account_password_policy")
+	not _pci_compliant(r.block)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("IAM password policy %q is not PCI compliant (require_numbers + require_lowercase_characters + minimum_password_length >= 7).", [r.name]),
+		"artifact_uri": r.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }
 
-# Core logic: check if the password policy is PCI compliant.
-pci_compliant(pol) {
-    pol.require_numbers
-    pol.require_lowercase_characters
-    pol.minimum_password_length >= 7
-}
-
-# Placeholder for missing a password policy from the input.
-resource_type := "MULTIPLE"
-
-policy[j] {
-  fugue.input_type == "tf_runtime"
-  not exists_password_policy
-  j = fugue.missing_resource_with_message(password_policy_type, "No IAM password policy was found.")
-} {
-  pol = password_policies[_]
-  pci_compliant(pol)
-  j = fugue.allow_resource(pol)
-} {
-  pol = password_policies[_]
-  not pci_compliant(pol)
-  j = fugue.deny_resource(pol)
+_pci_compliant(block) if {
+	tf.bool_attr(block, "require_numbers") == true
+	tf.bool_attr(block, "require_lowercase_characters") == true
+	tf.number_attr(block, "minimum_password_length") >= 7
 }

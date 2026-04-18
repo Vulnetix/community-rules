@@ -1,44 +1,39 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-package rules.tf_aws_sns_http_subscription
+# Adapted from https://github.com/fugue/regula (FG_R00052).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-import data.fugue
+package vulnetix.rules.fugue_tf_aws_sns_01
 
+import rego.v1
 
-__rego__metadoc__ := {
-  "custom": {
-    "severity": "Medium"
-  },
-  "description": "SNS subscriptions should deny access via HTTP. SNS subscriptions should not use HTTP as the delivery protocol. To enforce encryption in transit, any subscription to an HTTP endpoint should use HTTPS instead.",
-  "id": "FG_R00052",
-  "title": "SNS subscriptions should deny access via HTTP"
+import data.vulnetix.fugue.tf
+
+metadata := {
+	"id": "FUGUE-TF-AWS-SNS-01",
+	"name": "SNS subscriptions should not use HTTP",
+	"description": "SNS subscriptions should not use HTTP as the delivery protocol; use HTTPS to enforce encryption in transit.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["terraform", "hcl"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-319"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "aws", "sns", "tls"],
 }
 
-topic_subscriptions = fugue.resources("aws_sns_topic_subscription")
-
-invalid_topic_subscriptions[id] = topic_subscription {
-  topic_subscription = topic_subscriptions[id]
-  topic_subscription.protocol == "http"
-}
-
-resource_type := "MULTIPLE"
-
-policy[j] {
-  invalid_topic_subscriptions[id] = sub
-  j = fugue.deny_resource(sub)
-} {
-  topic_subscriptions[id] = sub
-  not invalid_topic_subscriptions[id]
-  j = fugue.allow_resource(sub)
+findings contains finding if {
+	some s in tf.resources("aws_sns_topic_subscription")
+	tf.string_attr(s.block, "protocol") == "http"
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("aws_sns_topic_subscription %q uses protocol = \"http\".", [s.name]),
+		"artifact_uri": s.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [s.type, s.name]),
+	}
 }

@@ -1,49 +1,66 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-package rules.tf_google_dns_dnssec_key_signing_key
+# Adapted from https://github.com/fugue/regula (FG_R00405).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-__rego__metadoc__ := {
-  "custom": {
-    "controls": {
-      "CIS-Google_v1.1.0": [
-        "CIS-Google_v1.1.0_3.4"
-      ],
-      "CIS-Google_v1.2.0": [
-        "CIS-Google_v1.2.0_3.4"
-      ]
-    },
-    "severity": "High"
-  },
-  "description": "DNS managed zone DNSSEC key-signing keys should not use RSASHA1. Domain Name System Security Extensions (DNSSEC) algorithm numbers may be used in CERT RRs. Zone signing (DNSSEC) and transaction security mechanisms (SIG(0) and TSIG) make use of particular subsets of these algorithms. The key-signing key algorithm should be strong, and RSASHA1 is no longer considered secure. Use it only for compatibility reasons.",
-  "id": "FG_R00405",
-  "title": "DNS managed zone DNSSEC key-signing keys should not use RSASHA1"
+package vulnetix.rules.fugue_tf_gcp_dns_dnssec_key_signing_key
+
+import rego.v1
+
+import data.vulnetix.fugue.tf
+
+metadata := {
+	"id": "FUGUE-TF-GCP-DNS-02",
+	"name": "DNS managed zone DNSSEC key-signing keys should not use RSASHA1",
+	"description": "DNS managed zone DNSSEC key-signing keys should not use RSASHA1. Domain Name System Security Extensions (DNSSEC) algorithm numbers may be used in CERT RRs. Zone signing (DNSSEC) and transaction security mechanisms (SIG(0) and TSIG) make use of particular subsets of these algorithms. The key-signing key algorithm should be strong, and RSASHA1 is no longer considered secure. Use it only for compatibility reasons.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["terraform", "hcl"],
+	"severity": "high",
+	"level": "error",
+	"kind": "iac",
+	"cwe": ["CWE-327"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "gcp", "dns", "dnssec"],
 }
 
-resource_type := "google_dns_managed_zone"
-
-invalid_algorithms = {"rsasha1"}
-
-has_invalid_algorithm(dnssec_config) {
-  key_spec := dnssec_config.default_key_specs[_]
-  key_spec.key_type == "keySigning"
-  invalid_algorithms[key_spec.algorithm]
+findings contains finding if {
+	some r in tf.resources("google_dns_managed_zone")
+	_dnssec_on(r.block)
+	_has_weak_key_signing(r.block)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("google_dns_managed_zone %q uses RSASHA1 for a key-signing default_key_specs entry.", [r.name]),
+		"artifact_uri": r.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }
 
-default allow = false
+findings contains finding if {
+	some r in tf.resources("google_dns_managed_zone")
+	not _dnssec_on(r.block)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("google_dns_managed_zone %q does not have DNSSEC enabled.", [r.name]),
+		"artifact_uri": r.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
+}
 
-allow {
-  dnssec_config := input.dnssec_config[_]
-  dnssec_config.state == "on"
-  not has_invalid_algorithm(dnssec_config)
+_dnssec_on(block) if {
+	some cfg in tf.sub_blocks(block, "dnssec_config")
+	tf.string_attr(cfg, "state") == "on"
+}
+
+_has_weak_key_signing(block) if {
+	some cfg in tf.sub_blocks(block, "dnssec_config")
+	some spec in tf.sub_blocks(cfg, "default_key_specs")
+	tf.string_attr(spec, "key_type") == "keySigning"
+	tf.string_attr(spec, "algorithm") == "rsasha1"
 }

@@ -1,55 +1,45 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-package rules.tf_aws_elb_access_log_enabled
+# Adapted from https://github.com/fugue/regula (FG_R00066).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-import data.fugue
+package vulnetix.rules.fugue_tf_aws_elb_01
 
+import rego.v1
 
-__rego__metadoc__ := {
-  "custom": {
-    "severity": "Medium"
-  },
-  "description": "Load balancer access logging should be enabled. Load balancer access logging should be enabled. Access logs record information about every HTTP and TCP request a load balancer processes. Access logging should be enabled in order to analyze statistics, diagnose issues, and retain data for regulatory or legal purposes.",
-  "id": "FG_R00066",
-  "title": "Load balancer access logging should be enabled"
+import data.vulnetix.fugue.tf
+
+metadata := {
+	"id": "FUGUE-TF-AWS-ELB-01",
+	"name": "Load balancer access logging should be enabled",
+	"description": "Load balancer access logs record information about every HTTP and TCP request processed. Access logging should be enabled to analyze statistics, diagnose issues, and retain data.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["terraform", "hcl"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-778"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "aws", "elb", "logging"],
 }
 
-elbs = fugue.resources("aws_elb")
-lbs = fugue.resources("aws_lb")
-
-all_resources[id] = resource {
-  elbs[id] = resource
-} {
-  lbs[id] = resource
-} {
-  # Check that aws_alb is in the input. Should only be true in regula.
-  fugue.input_resource_types["aws_alb"]
-  fugue.resources("aws_alb")[id] = resource
+findings contains finding if {
+	some ty in {"aws_elb", "aws_lb", "aws_alb"}
+	some r in tf.resources(ty)
+	not _access_logs_enabled(r.block)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("Load balancer %q (%s) does not enable access_logs.", [r.name, r.type]),
+		"artifact_uri": r.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }
 
-access_logs_enabled(obj) {
-  obj.access_logs[_].enabled == true
-}
-
-resource_type := "MULTIPLE"
-
-policy[j] {
-  obj = all_resources[_]
-  access_logs_enabled(obj)
-  j = fugue.allow_resource(obj)
-} {
-  obj = all_resources[_]
-  not access_logs_enabled(obj)
-  j = fugue.deny_resource(obj)
+_access_logs_enabled(block) if {
+	some al in tf.sub_blocks(block, "access_logs")
+	tf.bool_attr(al, "enabled") == true
 }

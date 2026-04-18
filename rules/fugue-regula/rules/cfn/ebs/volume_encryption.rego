@@ -1,37 +1,40 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-package rules.cfn_ebs_volume_encryption
+# Adapted from https://github.com/fugue/regula (FG_R00016).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-__rego__metadoc__ := {
-  "custom": {
-    "controls": {
-      "CIS-AWS_v1.3.0": [
-        "CIS-AWS_v1.3.0_2.2.1"
-      ]
-    },
-    "severity": "High"
-  },
-  "description": "EBS volume encryption should be enabled. Enabling encryption on EBS volumes protects data at rest inside the volume, data in transit between the volume and the instance, snapshots created from the volume, and volumes created from those snapshots. EBS volumes are encrypted using KMS keys.",
-  "id": "FG_R00016",
-  "title": "EBS volume encryption should be enabled"
+package vulnetix.rules.fugue_cfn_ebs_volume_encryption
+
+import rego.v1
+
+import data.vulnetix.fugue.cfn
+
+metadata := {
+	"id": "FUGUE-CFN-EBS-01",
+	"name": "EBS volume encryption should be enabled",
+	"description": "EBS volume encryption should be enabled. Enabling encryption on EBS volumes protects data at rest inside the volume, data in transit between the volume and instance, snapshots, and volumes created from those snapshots.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["yaml", "json"],
+	"severity": "high",
+	"level": "error",
+	"kind": "iac",
+	"cwe": ["CWE-311"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["cloudformation", "aws", "ebs", "encryption"],
 }
 
-input_type := "cfn"
-resource_type := "AWS::EC2::Volume"
-
-default allow = false
-
-allow {
-  input.Encrypted == true
+findings contains finding if {
+	some r in cfn.resources("AWS::EC2::Volume")
+	props := cfn.properties(r)
+	not props.Encrypted == true
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("EBS Volume %q does not have Encrypted set to true.", [r.logical_id]),
+		"artifact_uri": r.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("AWS::EC2::Volume/%s", [r.logical_id]),
+	}
 }

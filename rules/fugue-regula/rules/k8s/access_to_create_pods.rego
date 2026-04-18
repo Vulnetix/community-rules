@@ -1,52 +1,45 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# Adapted from https://github.com/fugue/regula (FG_R00482).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-package rules.k8s_access_to_create_pods
+package vulnetix.rules.fugue_k8s_access_to_create_pods
 
-import data.fugue
-import data.k8s
+import rego.v1
 
-__rego__metadoc__ := {
-  "custom": {
-    "severity": "Medium"
-  },
-  "description": "Roles and cluster roles should not grant 'create' permissions for pods. Minimize access to create pods for RBAC roles. Privilege escalation is possible when these permissions are available, since the created pods could be assigned privileged service accounts or have access to sensitive data. Avoid granting pod creation privileges by default.",
-  "id": "FG_R00482",
-  "title": "Roles and cluster roles should not grant 'create' permissions for pods"
+import data.vulnetix.fugue.k8s
+
+metadata := {
+	"id": "FUGUE-K8S-RBAC-01",
+	"name": "Roles should not grant 'create' permissions for pods",
+	"description": "RBAC Roles and ClusterRoles that grant 'create' on 'pods' enable privilege escalation via pod creation (attacker-controlled service accounts, host mounts, etc.).",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["yaml"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-269"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["kubernetes", "rbac", "privilege-escalation"],
 }
 
-input_type := "k8s"
-
-resource_type := "MULTIPLE"
-
-is_invalid_rule(rule) {
-	rule.resources[_] == "pods"
-	rule.verbs[_] == "create"
+findings contains finding if {
+	some role in k8s.roles
+	_is_invalid(role.doc)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("%s %q grants 'create' on 'pods'.", [role.doc.kind, role.doc.metadata.name]),
+		"artifact_uri": role.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s/%s", [role.doc.kind, role.doc.metadata.name]),
+	}
 }
 
-is_invalid(role) {
-	is_invalid_rule(role.rules[_])
-}
-
-policy[j] {
-	role := k8s.roles[_]
-	not is_invalid(role)
-	j = fugue.allow_resource(role)
-}
-
-policy[j] {
-	role := k8s.roles[_]
-	is_invalid(role)
-	j = fugue.deny_resource(role)
+_is_invalid(role) if {
+	some r in role.rules
+	"pods" in r.resources
+	"create" in r.verbs
 }

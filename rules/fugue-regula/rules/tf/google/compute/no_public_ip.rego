@@ -1,39 +1,40 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-package rules.tf_google_compute_no_public_ip
+# Adapted from https://github.com/fugue/regula (FG_R00419).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-__rego__metadoc__ := {
-  "custom": {
-    "controls": {
-      "CIS-Google_v1.1.0": [
-        "CIS-Google_v1.1.0_4.9"
-      ],
-      "CIS-Google_v1.2.0": [
-        "CIS-Google_v1.2.0_4.9"
-      ]
-    },
-    "severity": "Medium"
-  },
-  "description": "Compute instances should not have public IP addresses. Compute Engine instances should not have public IP addresses to reduce potential attack surfaces, as public IPs enable direct access via the internet. Instances serving internet traffic should be configured behind load balancers, which provide an additional layer of security.",
-  "id": "FG_R00419",
-  "title": "Compute instances should not have public IP addresses"
+package vulnetix.rules.fugue_tf_gcp_gce_no_public_ip
+
+import rego.v1
+
+import data.vulnetix.fugue.tf
+
+metadata := {
+	"id": "FUGUE-TF-GCP-GCE-09",
+	"name": "Compute instances should not have public IP addresses",
+	"description": "Compute instances should not have public IP addresses. Compute Engine instances should not have public IP addresses to reduce potential attack surfaces, as public IPs enable direct access via the internet. Instances serving internet traffic should be configured behind load balancers, which provide an additional layer of security.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["terraform", "hcl"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-284"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "gcp", "compute", "networking"],
 }
 
-resource_type := "google_compute_instance"
-
-default deny = false
-
-deny {
-  count(input.network_interface[_].access_config) > 0
+findings contains finding if {
+	some r in tf.resources("google_compute_instance")
+	some ni in tf.sub_blocks(r.block, "network_interface")
+	tf.has_sub_block(ni, "access_config")
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("google_compute_instance %q has a network_interface with access_config (public IP).", [r.name]),
+		"artifact_uri": r.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }

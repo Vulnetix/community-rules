@@ -1,66 +1,50 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-package rules.tf_google_logging_bucket_lock
+# Adapted from https://github.com/fugue/regula (FG_R00393).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-import data.fugue
+package vulnetix.rules.fugue_tf_gcp_log_bucket_lock
 
-__rego__metadoc__ := {
-  "custom": {
-    "controls": {
-      "CIS-Google_v1.1.0": [
-        "CIS-Google_v1.1.0_2.3"
-      ],
-      "CIS-Google_v1.2.0": [
-        "CIS-Google_v1.2.0_2.3"
-      ]
-    },
-    "severity": "Medium"
-  },
-  "description": "Logging storage bucket retention policies and Bucket Lock should be configured. A retention policy for a Cloud Storage bucket governs how long objects in the bucket must be retained. Bucket Lock is a feature to permanently restrict edits to the data retention policy. Bucket Lock should be enabled because it preserves activity logs for forensics and security investigations if the system is compromised by an attacker or malicious insider who wants to cover their tracks.",
-  "id": "FG_R00393",
-  "title": "Logging storage bucket retention policies and Bucket Lock should be configured"
+import rego.v1
+
+import data.vulnetix.fugue.tf
+
+metadata := {
+	"id": "FUGUE-TF-GCP-LOG-03",
+	"name": "Logging storage bucket retention policies and Bucket Lock should be configured",
+	"description": "Logging storage bucket retention policies and Bucket Lock should be configured. A retention policy for a Cloud Storage bucket governs how long objects in the bucket must be retained. Bucket Lock is a feature to permanently restrict edits to the data retention policy. Bucket Lock should be enabled because it preserves activity logs for forensics and security investigations if the system is compromised by an attacker or malicious insider who wants to cover their tracks.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["terraform", "hcl"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-778"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "gcp", "logging", "storage"],
 }
 
-resource_type := "MULTIPLE"
-
-buckets = fugue.resources("google_storage_bucket")
-sinks = fugue.resources("google_logging_project_sink")
-
-sink_buckets[id] {
-  bucket = buckets[id]
-  sink = sinks[_]
-  sink.destination == concat("/", ["storage.googleapis.com", bucket.name])
-} {
-  bucket = buckets[id]
-  sink = sinks[_]
-  sink.destination == bucket.name  # Work with names at design time
+findings contains finding if {
+	some bucket in tf.resources("google_storage_bucket")
+	_is_sink_destination(bucket)
+	not _has_locked_retention(bucket.block)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("google_storage_bucket %q is a logging sink destination without a locked retention_policy.", [bucket.name]),
+		"artifact_uri": bucket.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [bucket.type, bucket.name]),
+	}
 }
 
-valid_retention_policy(bucket) {
-  bucket.retention_policy[_].is_locked == true
+_is_sink_destination(bucket) if {
+	some sink in tf.resources("google_logging_project_sink")
+	tf.references(sink.block, "google_storage_bucket", bucket.name)
 }
 
-policy[j] {
-  bucket = buckets[id]
-  sink_buckets[id]
-  valid_retention_policy(bucket)
-  j = fugue.allow_resource(bucket)
-}
-
-policy[j] {
-  bucket = buckets[_]
-  sink_buckets[id]
-  not valid_retention_policy(bucket)
-  j = fugue.deny_resource(bucket)
+_has_locked_retention(block) if {
+	some rp in tf.sub_blocks(block, "retention_policy")
+	tf.bool_attr(rp, "is_locked") == true
 }

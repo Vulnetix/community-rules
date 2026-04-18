@@ -1,45 +1,45 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-package rules.tf_google_sql_database_no_public_ip
+# Adapted from https://github.com/fugue/regula (FG_R00435).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-import data.google.sql_database.sql_database_library as lib
+package vulnetix.rules.fugue_tf_gcp_sql_no_public_ip
 
-__rego__metadoc__ := {
-  "custom": {
-    "controls": {
-      "CIS-Google_v1.1.0": [
-        "CIS-Google_v1.1.0_6.6"
-      ],
-      "CIS-Google_v1.2.0": [
-        "CIS-Google_v1.2.0_6.6"
-      ]
-    },
-    "severity": "Medium"
-  },
-  "description": "SQL database instances should not have public IPs. SQL database instances with public IP addresses are directly accessible by hosts on the Internet. To minimize its attack surface, a database server should be configured with private IP addresses. Private addresses provide better security because of intermediary firewall or NAT devices.",
-  "id": "FG_R00435",
-  "title": "SQL database instances should not have public IPs"
+import rego.v1
+
+import data.vulnetix.fugue.tf
+
+metadata := {
+	"id": "FUGUE-TF-GCP-SQL-04",
+	"name": "SQL database instances should not have public IPs",
+	"description": "SQL database instances should not have public IPs. SQL database instances with public IP addresses are directly accessible by hosts on the Internet. To minimize its attack surface, a database server should be configured with private IP addresses. Private addresses provide better security because of intermediary firewall or NAT devices.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["terraform", "hcl"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-284"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "gcp", "sql", "networking"],
 }
 
-resource_type := "google_sql_database_instance"
+findings contains finding if {
+	some r in tf.resources("google_sql_database_instance")
+	_has_public_ip(r.block)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("google_sql_database_instance %q has ipv4_enabled = true (public IP).", [r.name]),
+		"artifact_uri": r.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
+}
 
-default deny = false
-
-deny {
-  # Runtime
-  input.ip_address[_].type == "PRIMARY"
-} {
-  # Design time
-  input.settings[_].ip_configuration[_].ipv4_enabled == true
+_has_public_ip(block) if {
+	some settings in tf.sub_blocks(block, "settings")
+	some ip in tf.sub_blocks(settings, "ip_configuration")
+	tf.bool_attr(ip, "ipv4_enabled") == true
 }

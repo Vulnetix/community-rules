@@ -1,56 +1,51 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# Adapted from https://github.com/fugue/regula (FG_R00337).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-package rules.arm_postgresql_log_retention
+package vulnetix.rules.fugue_arm_postgresql_log_retention
 
-import data.fugue
-import data.arm.postgresql_configuration_library as lib
+import rego.v1
 
-__rego__metadoc__ := {
-  "custom": {
-    "controls": {
-      "CIS-Azure_v1.1.0": [
-        "CIS-Azure_v1.1.0_4.18"
-      ],
-      "CIS-Azure_v1.3.0": [
-        "CIS-Azure_v1.3.0_4.3.7"
-      ]
-    },
-    "severity": "Medium"
-  },
-  "description": "Enabling log_retention_days helps PostgreSQL Database to Sets number of days a log file is retained which in turn generates query and error logs. Query and error logs can be used to identify, troubleshoot, and repair configuration errors and sub-optimal performance.",
-  "id": "FG_R00337",
-  "title": "PostgreSQL Database configuration 'log_retention days' should be greater than 3"
+import data.vulnetix.fugue.arm
+
+metadata := {
+	"id": "FUGUE-ARM-PG-07",
+	"name": "PostgreSQL Database configuration 'log_retention days' should be greater than 3",
+	"description": "Enabling log_retention_days helps PostgreSQL Database to Sets number of days a log file is retained which in turn generates query and error logs. Query and error logs can be used to identify, troubleshoot, and repair configuration errors and sub-optimal performance.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["json"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-778"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["arm", "azure", "postgresql", "logging", "retention"],
 }
 
-input_type := "arm"
-
-resource_type := "MULTIPLE"
-
-is_valid(server) {
-    days = lib.configuration_value(server, "log_retention_days")
-    to_number(days) > 3
+_config_value(server, key) := v if {
+	some cfg in arm.resources("Microsoft.DBforPostgreSQL/servers/configurations")
+	cfg.path == server.path
+	cfg.resource.name == sprintf("%s/%s", [server.resource.name, key])
+	v := cfg.resource.properties.value
 }
 
-policy[p] {
-	server = lib.servers[_]
-	is_valid(server)
-	p = fugue.allow_resource(server)
+_ok(server) if {
+	days := _config_value(server, "log_retention_days")
+	to_number(days) > 3
 }
 
-policy[p] {
-	server = lib.servers[_]
-	not is_valid(server)
-	p = fugue.deny_resource(server)
+findings contains finding if {
+	some s in arm.resources("Microsoft.DBforPostgreSQL/servers")
+	not _ok(s)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("PostgreSQL server %q has log_retention_days <= 3.", [s.resource.name]),
+		"artifact_uri": s.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s/%s", [s.resource.type, s.resource.name]),
+	}
 }

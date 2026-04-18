@@ -1,54 +1,52 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-package rules.tf_google_sql_database_pg_enable_log_lock_waits
+# Adapted from https://github.com/fugue/regula (FG_R00427).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-import data.fugue
-import data.google.sql_database.sql_database_library as lib
+package vulnetix.rules.fugue_tf_gcp_sql_pg_enable_log_lock_waits
 
-__rego__metadoc__ := {
-  "custom": {
-    "controls": {
-      "CIS-Google_v1.1.0": [
-        "CIS-Google_v1.1.0_6.2.4"
-      ],
-      "CIS-Google_v1.2.0": [
-        "CIS-Google_v1.2.0_6.2.6"
-      ]
-    },
-    "severity": "Medium"
-  },
-  "description": "PostgreSQL database instance 'log_lock_waits' database flag should be set to 'on'. The PostgreSQL database instance flag 'log_lock_waits' causes a session wait to be logged if it takes longer than the 'deadlock_timeout' value to acquire a lock. This is useful to identify poor performance due to locking delays or if a specially-crafted SQL query is attempting to starve resources through holding locks for excessive amounts of time.",
-  "id": "FG_R00427",
-  "title": "PostgreSQL database instance 'log_lock_waits' database flag should be set to 'on'"
+import rego.v1
+
+import data.vulnetix.fugue.tf
+
+metadata := {
+	"id": "FUGUE-TF-GCP-SQL-09",
+	"name": "PostgreSQL database instance 'log_lock_waits' database flag should be set to 'on'",
+	"description": "PostgreSQL database instance 'log_lock_waits' database flag should be set to 'on'. The PostgreSQL database instance flag 'log_lock_waits' causes a session wait to be logged if it takes longer than the 'deadlock_timeout' value to acquire a lock. This is useful to identify poor performance due to locking delays or if a specially-crafted SQL query is attempting to starve resources through holding locks for excessive amounts of time.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["terraform", "hcl"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-778"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "gcp", "sql", "postgres", "logging"],
 }
 
-resource_type := "MULTIPLE"
-
-valid_db_instances[id] {
-  db = lib.postgres_database_instances[id]
-  flag := lib.get_db_flag_with_default(db, "log_lock_waits", "off")
-  flag == "on"
+findings contains finding if {
+	some r in tf.resources("google_sql_database_instance")
+	_is_postgres(r.block)
+	not _flag_equals(r.block, "log_lock_waits", "on")
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("google_sql_database_instance %q (PostgreSQL) does not set log_lock_waits = \"on\".", [r.name]),
+		"artifact_uri": r.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }
 
-policy[j] {
-  db = lib.postgres_database_instances[id]
-  valid_db_instances[id]
-  j = fugue.allow_resource(db)
+_is_postgres(block) if {
+	v := tf.string_attr(block, "database_version")
+	startswith(upper(v), "POSTGRES")
 }
 
-policy[j] {
-  db = lib.postgres_database_instances[id]
-  not valid_db_instances[id]
-  j = fugue.deny_resource(db)
+_flag_equals(block, flag_name, want) if {
+	some settings in tf.sub_blocks(block, "settings")
+	some df in tf.sub_blocks(settings, "database_flags")
+	tf.string_attr(df, "name") == flag_name
+	tf.string_attr(df, "value") == want
 }

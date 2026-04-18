@@ -1,74 +1,62 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-package rules.tf_google_iam_no_service_account_roles
+# Adapted from https://github.com/fugue/regula (FG_R00385).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-import data.fugue
-import data.google.iam.policy_library as lib
+package vulnetix.rules.fugue_tf_gcp_iam_no_service_account_roles
 
-__rego__metadoc__ := {
-  "custom": {
-    "controls": {
-      "CIS-Google_v1.1.0": [
-        "CIS-Google_v1.1.0_1.6"
-      ],
-      "CIS-Google_v1.2.0": [
-        "CIS-Google_v1.2.0_1.6"
-      ]
-    },
-    "severity": "High"
-  },
-  "description": "IAM users should not have project-level 'Service Account User' or 'Service Account Token Creator' roles. Assigning IAM users with project-level 'Service Account User' or 'Service Account Token Creator' roles means that they can potentially access resources across an entire project. To follow least privileges best practice, IAM users should be assigned to a specific service account with more scoped access.",
-  "id": "FG_R00385",
-  "title": "IAM users should not have project-level 'Service Account User' or 'Service Account Token Creator' roles"
+import rego.v1
+
+import data.vulnetix.fugue.tf
+
+metadata := {
+	"id": "FUGUE-TF-GCP-IAM-02",
+	"name": "IAM users should not have project-level 'Service Account User' or 'Service Account Token Creator' roles",
+	"description": "IAM users should not have project-level 'Service Account User' or 'Service Account Token Creator' roles. Assigning IAM users with project-level 'Service Account User' or 'Service Account Token Creator' roles means that they can potentially access resources across an entire project. To follow least privileges best practice, IAM users should be assigned to a specific service account with more scoped access.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["terraform", "hcl"],
+	"severity": "high",
+	"level": "error",
+	"kind": "iac",
+	"cwe": ["CWE-269"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "gcp", "iam", "service-account"],
 }
 
-resource_type := "MULTIPLE"
-
-invalid_roles = {"roles/iam.serviceAccountUser", "roles/iam.serviceAccountTokenCreator"}
-
-invalid_members := {m |
-  roles = lib.project_roles_by_member[m]
-  count(roles & invalid_roles) > 0
+_invalid_roles := {
+	"roles/iam.serviceAccountUser",
+	"roles/iam.serviceAccountTokenCreator",
 }
 
-invalid_resources := ret {
-  ret := {id |
-    p = lib.project_iam_policies[id]
-    binding = lib.policy_data_bindings(p)[_]
-    invalid_roles[binding.role]
-    m = binding.members[_]
-    invalid_members[m]
-  } | {id |
-    binding = lib.project_iam_binding_resources[id]
-    invalid_roles[binding.role]
-    m = binding.members[_]
-    invalid_members[m]
-  } | {id |
-    member_resource = lib.project_iam_member_resources[id]
-    invalid_roles[member_resource.role]
-    invalid_members[member_resource.member]
-  }
+findings contains finding if {
+	some r in tf.resources("google_project_iam_binding")
+	role := tf.string_attr(r.block, "role")
+	role in _invalid_roles
+	members := tf.string_list_attr(r.block, "members")
+	count(members) > 0
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("google_project_iam_binding %q grants %q at project level.", [r.name, role]),
+		"artifact_uri": r.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }
 
-policy[j] {
-  r = lib.project_iam_resources[id]
-  invalid_resources[id]
-  j = fugue.deny_resource(r)
-}
-
-policy[j] {
-  r = lib.project_iam_resources[id]
-  not invalid_resources[id]
-  j = fugue.allow_resource(r)
+findings contains finding if {
+	some r in tf.resources("google_project_iam_member")
+	role := tf.string_attr(r.block, "role")
+	role in _invalid_roles
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("google_project_iam_member %q grants %q at project level.", [r.name, role]),
+		"artifact_uri": r.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }

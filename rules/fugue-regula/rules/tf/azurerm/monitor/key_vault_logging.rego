@@ -1,98 +1,73 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-package rules.tf_azurerm_monitor_key_vault_logging
+# Adapted from https://github.com/fugue/regula (FG_R00344).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-import data.fugue
+package vulnetix.rules.fugue_tf_az_mon_kv_logging
 
-__rego__metadoc__ := {
-  "custom": {
-    "controls": {
-      "CIS-Azure_v1.1.0": [
-        "CIS-Azure_v1.1.0_5.1.7"
-      ],
-      "CIS-Azure_v1.3.0": [
-        "CIS-Azure_v1.3.0_5.1.5"
-      ]
-    },
-    "severity": "Medium"
-  },
-  "description": "Key Vault logging should be enabled. Enable AuditEvent logging for key vault instances to ensure interactions with key vaults are logged and available.",
-  "id": "FG_R00344",
-  "title": "Key Vault logging should be enabled"
+import rego.v1
+
+import data.vulnetix.fugue.tf
+
+metadata := {
+	"id": "FUGUE-TF-AZ-MON-01",
+	"name": "Key Vault logging should be enabled",
+	"description": "Key Vault logging should be enabled. Enable AuditEvent logging for key vault instances to ensure interactions with key vaults are logged and available.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["terraform", "hcl"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-778"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "azure", "monitor", "key-vault", "logging"],
 }
 
-key_vaults = fugue.resources("azurerm_key_vault")
-diagnostic_settings = fugue.resources("azurerm_monitor_diagnostic_setting")
-
-valid_audit_target_ids = {lower(id) |
-  diagnostic_setting = diagnostic_settings[_]
-  id = diagnostic_setting.target_resource_id
-  log = diagnostic_setting.log[_]
-
-  lower(log.category) == "auditevent"
-  log.enabled == true
-
-  check_log(diagnostic_setting, log)
+findings contains finding if {
+	some kv in tf.resources("azurerm_key_vault")
+	not _has_audit_logging(kv.name)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("Key Vault %q has no azurerm_monitor_diagnostic_setting with AuditEvent log enabled.", [kv.name]),
+		"artifact_uri": kv.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [kv.type, kv.name]),
+	}
 }
 
-# Log Analytics and EventHub don't support retention policies, so we
-# don't have to worry about them.
-
-check_log(diagnostic_setting, log) {
-  diagnostic_setting.log_analytics_workspace_id != ""
+_has_audit_logging(vault_name) if {
+	some ds in tf.resources("azurerm_monitor_diagnostic_setting")
+	tf.references(ds.block, "azurerm_key_vault", vault_name)
+	some log in tf.sub_blocks(ds.block, "log")
+	cat := tf.string_attr(log, "category")
+	lower(cat) == "auditevent"
+	not tf.bool_attr(log, "enabled") == false
+	_check_log_target(ds.block, log)
 }
 
-check_log(diagnostic_setting, log) {
-  diagnostic_setting.eventhub_authorization_rule_id != ""
+# Log Analytics and EventHub don't require retention checks.
+_check_log_target(ds_block, _) if tf.has_key(ds_block, "log_analytics_workspace_id")
+
+_check_log_target(ds_block, _) if tf.has_key(ds_block, "eventhub_authorization_rule_id")
+
+# Storage account target requires valid retention.
+_check_log_target(ds_block, log) if {
+	tf.has_key(ds_block, "storage_account_id")
+	some rp in tf.sub_blocks(log, "retention_policy")
+	_check_retention(rp)
 }
 
-# If the Key Vault is using a storage account the retention policy is
-# important...
-check_log(diagnostic_setting, log) {
-  diagnostic_setting.storage_account_id != ""
-  check_retention(log.retention_policy[_])
+_check_retention(rp) if tf.bool_attr(rp, "enabled") == false
+
+_check_retention(rp) if {
+	tf.bool_attr(rp, "enabled") == true
+	tf.number_attr(rp, "days") >= 180
 }
 
-# If the retention policy is disabled, data will be retained
-# indefinitely.
-check_retention(retention_policy) {
-  retention_policy.enabled = false
-}
-
-# If the retention policy is enabled, make sure that it is retained for
-# a minimum of 180 days.
-check_retention(retention_policy) {
-  retention_policy.enabled = true
-  retention_policy.days >= 180
-}
-
-# A retention policy of 0 days is also acceptable as 0 is used to
-# indicate unlimited retention (i.e., it's equivalent to having the
-# policy disabled).
-check_retention(retention_policy) {
-  retention_policy.enabled = true
-  retention_policy.days == 0
-}
-
-resource_type := "MULTIPLE"
-
-policy[p] {
-  key_vault = key_vaults[_]
-  valid_audit_target_ids[lower(key_vault.id)]
-  p = fugue.allow_resource(key_vault)
-} {
-  key_vault = key_vaults[_]
-  not valid_audit_target_ids[lower(key_vault.id)]
-  p = fugue.deny_resource(key_vault)
+_check_retention(rp) if {
+	tf.bool_attr(rp, "enabled") == true
+	tf.number_attr(rp, "days") == 0
 }

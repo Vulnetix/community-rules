@@ -1,70 +1,76 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# Adapted from https://github.com/fugue/regula (FG_R00288).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-package rules.arm_authorization_custom_owner_role
+package vulnetix.rules.fugue_arm_authorization_custom_owner_role
 
-import data.fugue
-import data.fugue.utils
+import rego.v1
 
-__rego__metadoc__ := {
-  "custom": {
-    "controls": {
-      "CIS-Azure_v1.1.0": [
-        "CIS-Azure_v1.1.0_1.23"
-      ],
-      "CIS-Azure_v1.3.0": [
-        "CIS-Azure_v1.3.0_1.21"
-      ]
-    },
-    "severity": "Medium"
-  },
-  "description": "Subscription ownership should not include permission to create custom owner roles. The principle of least privilege should be followed and only necessary privileges should be assigned instead of allowing full administrative access.",
-  "id": "FG_R00288",
-  "title": "Active Directory custom subscription owner roles should not be created"
+import data.vulnetix.fugue.arm
+
+metadata := {
+	"id": "FUGUE-ARM-AUTH-01",
+	"name": "Active Directory custom subscription owner roles should not be created",
+	"description": "Subscription ownership should not include permission to create custom owner roles. The principle of least privilege should be followed and only necessary privileges should be assigned instead of allowing full administrative access.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["json"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-269"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["arm", "azure", "authorization", "iam", "least-privilege"],
 }
 
-input_type := "arm"
-
-resource_type := "Microsoft.Authorization/roledefinitions"
-
-is_subscription_scope(scope) {
+_is_subscription_scope(scope) if {
 	scope == "/"
 }
 
-# Examples:
-# * "/subscriptions/479a226b-4153-48f7-8943-3e8e388a93cb"
-# * "/subscriptions/479a226b-4153-48f7-8943-3e8e388a93cb/"
-is_subscription_scope(scope) {
-	re_match(`^/subscriptions/[^/]+/?$`, lower(scope))
+_is_subscription_scope(scope) if {
+	regex.match(`^/subscriptions/[^/]+/?$`, lower(scope))
 }
 
-# Examples:
-# * "[concat('/subscriptions/', subscription().subscriptionId)]"
-# * "[concat('/subscriptions/', '479a226b-4153-48f7-8943-3e8e388a93cb')]"
-# * "[concat('/subscriptions/', parameters('subscriptionId'))]"
-is_subscription_scope(scope) {
-	re_match(`^\[concat\('/subscriptions/',[^,]+\]$`, replace(lower(scope), " ", ""))
+_is_subscription_scope(scope) if {
+	regex.match(`^\[concat\('/subscriptions/',[^,]+\]$`, replace(lower(scope), " ", ""))
 }
 
-is_subscription_scope(scope) {
+_is_subscription_scope(scope) if {
 	replace(lower(scope), " ", "") == "[subscription().id]"
 }
 
-default deny = false
+_as_array(x) := x if {
+	is_array(x)
+}
 
-deny {
-	actions := utils.as_array(input.properties.permissions[_].actions)
-	actions[_] == "*"
-	is_subscription_scope(input.properties.assignableScopes[_])
+_as_array(x) := [x] if {
+	not is_array(x)
+}
+
+_has_wildcard_action(res) if {
+	some perm in object.get(res.properties, "permissions", [])
+	acts := _as_array(object.get(perm, "actions", []))
+	some a in acts
+	a == "*"
+}
+
+_has_subscription_scope(res) if {
+	some scope in object.get(res.properties, "assignableScopes", [])
+	_is_subscription_scope(scope)
+}
+
+findings contains finding if {
+	some r in arm.resources("Microsoft.Authorization/roledefinitions")
+	_has_wildcard_action(r.resource)
+	_has_subscription_scope(r.resource)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("Custom role definition %q grants '*' at subscription scope.", [r.resource.name]),
+		"artifact_uri": r.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s/%s", [r.resource.type, r.resource.name]),
+	}
 }

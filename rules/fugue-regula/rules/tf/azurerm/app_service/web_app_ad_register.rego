@@ -1,36 +1,45 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-package rules.tf_azurerm_app_service_web_app_ad_register
+# Adapted from https://github.com/fugue/regula (FG_R00452).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-__rego__metadoc__ := {
-  "custom": {
-    "controls": {
-      "CIS-Azure_v1.3.0": [
-        "CIS-Azure_v1.3.0_9.5"
-      ]
-    },
-    "severity": "Low"
-  },
-  "description": "App Service web apps should use a system-assigned managed service identity. A system-assigned managed service entity from Azure Active Directory enables the app to connect to other Azure services securely without the need for usernames and passwords. Eliminating credentials from the app is a more secure approach.",
-  "id": "FG_R00452",
-  "title": "App Service web apps should use a system-assigned managed service identity"
+package vulnetix.rules.fugue_tf_az_as_ad_register
+
+import rego.v1
+
+import data.vulnetix.fugue.tf
+
+metadata := {
+	"id": "FUGUE-TF-AZ-AS-01",
+	"name": "App Service web apps should use a system-assigned managed service identity",
+	"description": "App Service web apps should use a system-assigned managed service identity. A system-assigned managed service entity from Azure Active Directory enables the app to connect to other Azure services securely without the need for usernames and passwords. Eliminating credentials from the app is a more secure approach.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["terraform", "hcl"],
+	"severity": "low",
+	"level": "note",
+	"kind": "iac",
+	"cwe": ["CWE-522"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "azure", "app-service", "identity"],
 }
 
-resource_type := "azurerm_app_service"
+findings contains finding if {
+	some r in tf.resources("azurerm_app_service")
+	not _has_system_assigned_identity(r.block)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("App Service %q does not use a system-assigned managed identity.", [r.name]),
+		"artifact_uri": r.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
+}
 
-default allow = false
-
-allow {
-  lower(input.identity[_].type) == "systemassigned"
+_has_system_assigned_identity(block) if {
+	some id in tf.sub_blocks(block, "identity")
+	t := tf.string_attr(id, "type")
+	lower(t) == "systemassigned"
 }

@@ -1,59 +1,60 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-package rules.tf_azurerm_authorization_custom_owner_role
+# Adapted from https://github.com/fugue/regula (FG_R00288).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-import data.fugue
+package vulnetix.rules.fugue_tf_az_auth_custom_owner_role
 
-__rego__metadoc__ := {
-  "custom": {
-    "controls": {
-      "CIS-Azure_v1.1.0": [
-        "CIS-Azure_v1.1.0_1.23"
-      ],
-      "CIS-Azure_v1.3.0": [
-        "CIS-Azure_v1.3.0_1.21"
-      ]
-    },
-    "severity": "Medium"
-  },
-  "description": "Active Directory custom subscription owner roles should not be created. Subscription ownership should not include permission to create custom owner roles. The principle of least privilege should be followed and only necessary privileges should be assigned instead of allowing full administrative access.",
-  "id": "FG_R00288",
-  "title": "Active Directory custom subscription owner roles should not be created"
+import rego.v1
+
+import data.vulnetix.fugue.tf
+
+metadata := {
+	"id": "FUGUE-TF-AZ-AUTH-01",
+	"name": "Active Directory custom subscription owner roles should not be created",
+	"description": "Active Directory custom subscription owner roles should not be created. Subscription ownership should not include permission to create custom owner roles. The principle of least privilege should be followed and only necessary privileges should be assigned instead of allowing full administrative access.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["terraform", "hcl"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-269"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "azure", "authorization", "rbac"],
 }
 
-resource_type := "azurerm_role_definition"
-
-is_subscription_scope(scope) {
-  scope == "/"
-} {
-  re_match("^/subscriptions/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/?$", lower(scope))
-} {
-  # At design time, you can use the azurerm_subscription data resource.
-  startswith(scope, "data.azurerm_subscription.")
+findings contains finding if {
+	some r in tf.resources("azurerm_role_definition")
+	_has_wildcard_action(r.block)
+	_has_subscription_scope(r.block)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("Role definition %q grants '*' action at subscription scope.", [r.name]),
+		"artifact_uri": r.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }
 
-default deny = false
-
-user_defined {
-  # All roles can be considered user defined at design time.
-  fugue.input_type != "tf_runtime"
-} {
-  input.role_type == "CustomRole"
+_has_wildcard_action(block) if {
+	some p in tf.sub_blocks(block, "permissions")
+	actions := tf.string_list_attr(p, "actions")
+	"*" in actions
 }
 
-deny {
-  user_defined
-  input.permissions[_].actions[_] == "*"
-  is_subscription_scope(input.assignable_scopes[_])
+_has_subscription_scope(block) if {
+	scopes := tf.string_list_attr(block, "assignable_scopes")
+	some s in scopes
+	_is_subscription_scope(s)
 }
+
+_is_subscription_scope(scope) if scope == "/"
+
+_is_subscription_scope(scope) if {
+	regex.match(`^/subscriptions/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/?$`, lower(scope))
+}
+
+_is_subscription_scope(scope) if startswith(scope, "data.azurerm_subscription.")

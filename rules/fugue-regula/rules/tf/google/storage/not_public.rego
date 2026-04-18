@@ -1,57 +1,60 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-package rules.tf_google_storage_not_public
+# Adapted from https://github.com/fugue/regula (FG_R00420).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-import data.fugue
-import data.google.storage.bucket_policy_library as lib
+package vulnetix.rules.fugue_tf_gcp_gcs_not_public
 
-__rego__metadoc__ := {
-  "custom": {
-    "controls": {
-      "CIS-Google_v1.1.0": [
-        "CIS-Google_v1.1.0_5.1"
-      ],
-      "CIS-Google_v1.2.0": [
-        "CIS-Google_v1.2.0_5.1"
-      ]
-    },
-    "severity": "Critical"
-  },
-  "description": "Storage buckets should not be anonymously or publicly accessible. Cloud Storage bucket permissions should not be configured to allow 'allUsers' or 'allAuthenticatedUsers' access. These permissions provides broad, public access, which can result in unknown or undesired data access.",
-  "id": "FG_R00420",
-  "title": "Storage buckets should not be anonymously or publicly accessible"
+import rego.v1
+
+import data.vulnetix.fugue.tf
+
+metadata := {
+	"id": "FUGUE-TF-GCP-GCS-01",
+	"name": "Storage buckets should not be anonymously or publicly accessible",
+	"description": "Storage buckets should not be anonymously or publicly accessible. Cloud Storage bucket permissions should not be configured to allow 'allUsers' or 'allAuthenticatedUsers' access. These permissions provides broad, public access, which can result in unknown or undesired data access.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["terraform", "hcl"],
+	"severity": "critical",
+	"level": "error",
+	"kind": "iac",
+	"cwe": ["CWE-284"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "gcp", "storage", "public-access"],
 }
 
-resource_type := "MULTIPLE"
+_anonymous := {"allUsers", "allAuthenticatedUsers"}
 
-buckets = fugue.resources("google_storage_bucket")
-
-anonymous_users = {"allAuthenticatedUsers", "allUsers"}
-
-has_public_access(bucket) {
-  members = lib.members_for_bucket(bucket)
-  count(members & anonymous_users) > 0
+findings contains finding if {
+	some bucket in tf.resources("google_storage_bucket")
+	_bucket_public(bucket.name)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("google_storage_bucket %q grants access to allUsers or allAuthenticatedUsers via a bucket IAM resource.", [bucket.name]),
+		"artifact_uri": bucket.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [bucket.type, bucket.name]),
+	}
 }
 
-policy[j] {
-  bucket = buckets[_]
-  not has_public_access(bucket)
-  j = fugue.allow_resource(bucket)
+_bucket_public(bucket_name) if {
+	some r in tf.resources("google_storage_bucket_iam_binding")
+	tf.references(r.block, "google_storage_bucket", bucket_name)
+	some m in tf.string_list_attr(r.block, "members")
+	m in _anonymous
 }
 
-policy[j] {
-  bucket = buckets[_]
-  has_public_access(bucket)
-  j = fugue.deny_resource(bucket)
+_bucket_public(bucket_name) if {
+	some r in tf.resources("google_storage_bucket_iam_member")
+	tf.references(r.block, "google_storage_bucket", bucket_name)
+	tf.string_attr(r.block, "member") in _anonymous
+}
+
+_bucket_public(bucket_name) if {
+	some r in tf.resources("google_storage_bucket_access_control")
+	tf.references(r.block, "google_storage_bucket", bucket_name)
+	tf.string_attr(r.block, "entity") in {"allUsers", "allAuthenticatedUsers"}
 }

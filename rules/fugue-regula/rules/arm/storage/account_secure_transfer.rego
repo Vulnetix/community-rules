@@ -1,48 +1,49 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# Adapted from https://github.com/fugue/regula (FG_R00152).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-package rules.arm_storage_account_secure_transfer
+package vulnetix.rules.fugue_arm_storage_account_secure_transfer
 
-__rego__metadoc__ := {
-  "custom": {
-    "controls": {
-      "CIS-Azure_v1.1.0": [
-        "CIS-Azure_v1.1.0_3.1"
-      ],
-      "CIS-Azure_v1.3.0": [
-        "CIS-Azure_v1.3.0_3.1"
-      ]
-    },
-    "severity": "Medium"
-  },
-  "description": "The secure transfer option enhances the security of a storage account by only allowing requests to the storage account by a secure connection. This control does not apply for custom domain names since Azure storage does not support HTTPS for custom domain names.",
-  "id": "FG_R00152",
-  "title": "Storage Accounts 'Secure transfer required' should be enabled"
+import rego.v1
+
+import data.vulnetix.fugue.arm
+
+metadata := {
+	"id": "FUGUE-ARM-SA-03",
+	"name": "Storage Accounts 'Secure transfer required' should be enabled",
+	"description": "The secure transfer option enhances the security of a storage account by only allowing requests to the storage account by a secure connection. This control does not apply for custom domain names since Azure storage does not support HTTPS for custom domain names.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["json"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-319"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["arm", "azure", "storage", "tls"],
 }
 
-input_type := "arm"
-
-resource_type := "Microsoft.Storage/storageAccounts"
-
-default deny = false
-
-deny {
-	# supportsHttpsTrafficOnly defaults to true starting with api version 2019-04-01
-	input.apiVersion < "2019-04-01"
-	not input.properties.supportsHttpsTrafficOnly
+# supportsHttpsTrafficOnly defaults to true starting with api version 2019-04-01.
+_bad(r) if {
+	r.resource.apiVersion < "2019-04-01"
+	not object.get(r.resource.properties, "supportsHttpsTrafficOnly", false)
 }
 
-deny {
-	input.properties.supportsHttpsTrafficOnly == false
+_bad(r) if {
+	object.get(r.resource.properties, "supportsHttpsTrafficOnly", true) == false
+}
+
+findings contains finding if {
+	some r in arm.resources("Microsoft.Storage/storageAccounts")
+	_bad(r)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("Storage account %q does not require secure transfer.", [r.resource.name]),
+		"artifact_uri": r.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s/%s", [r.resource.type, r.resource.name]),
+	}
 }

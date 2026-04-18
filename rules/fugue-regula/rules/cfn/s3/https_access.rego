@@ -1,77 +1,77 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-package rules.cfn_s3_https_access
+# Adapted from https://github.com/fugue/regula (FG_R00100).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-import data.fugue
-import data.cfn.s3
+package vulnetix.rules.fugue_cfn_s3_https_access
 
-__rego__metadoc__ := {
-  "custom": {
-    "controls": {
-      "CIS-AWS_v1.3.0": [
-        "CIS-AWS_v1.3.0_2.1.2"
-      ],
-      "CIS-AWS_v1.4.0": [
-        "CIS-AWS_v1.4.0_2.1.2"
-      ]
-    },
-    "severity": "Medium"
-  },
-  "description": "S3 bucket policies should only allow requests that use HTTPS. To protect data in transit, an S3 bucket policy should deny all HTTP requests to its objects and allow only HTTPS requests. HTTPS uses Transport Layer Security (TLS) to encrypt data, which preserves integrity and prevents tampering.",
-  "id": "FG_R00100",
-  "title": "S3 bucket policies should only allow requests that use HTTPS"
+import rego.v1
+
+import data.vulnetix.fugue.cfn
+
+metadata := {
+	"id": "FUGUE-CFN-S3-05",
+	"name": "S3 bucket policies should only allow requests that use HTTPS",
+	"description": "S3 bucket policies should deny all HTTP requests and allow only HTTPS requests. HTTPS uses TLS to encrypt data, preserving integrity and preventing tampering.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["yaml", "json"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-311"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["cloudformation", "aws", "s3", "tls"],
 }
 
-input_type := "cfn"
-resource_type := "MULTIPLE"
+_as_array(x) := [x] if not is_array(x)
+_as_array(x) := x if is_array(x)
 
-buckets := fugue.resources("AWS::S3::Bucket")
-bucket_policies := fugue.resources("AWS::S3::BucketPolicy")
-
-policies_for_bucket(bucket) = ret {
-  ret := [p | 
-    p := bucket_policies[_]
-    s3.matches_bucket_name_or_id(bucket, p.Bucket)
-  ]
+_matches_bucket(bucket_entry, bucket_ref) if {
+	props := cfn.properties(bucket_entry)
+	props.BucketName == bucket_ref
 }
 
-specifies_secure_transport(statement) {
-  secure_transport_values := as_array(statement.Condition.Bool["aws:SecureTransport"])
-  secure_transport_values[_] == false
-  statement.Effect == "Deny"
-
-  actions := as_array(statement.Action)
-  related_actions := {"s3:GetObject", "s3:*", "*"}
-  related_actions[actions[_]]
+_matches_bucket(bucket_entry, bucket_ref) if {
+	is_object(bucket_ref)
+	bucket_ref.Ref == bucket_entry.logical_id
 }
 
-valid_buckets[bucket_id] = bucket {
-  bucket := buckets[bucket_id]
-  policies := policies_for_bucket(bucket)
-  pol := policies[_]
-  statements := as_array(pol.PolicyDocument.Statement)
-  specifies_secure_transport(statements[_])
+_related_actions := {"s3:GetObject", "s3:*", "*"}
+
+_specifies_secure_transport(statement) if {
+	vals := _as_array(statement.Condition.Bool["aws:SecureTransport"])
+	some v in vals
+	v == false
+	statement.Effect == "Deny"
+	actions := _as_array(statement.Action)
+	some a in actions
+	_related_actions[a]
 }
 
-policy[j] {
-  b := valid_buckets[_]
-  j := fugue.allow_resource(b)
-} {
-  b := buckets[id]
-  not valid_buckets[id]
-  j := fugue.deny_resource(b)
+_policies_for_bucket(bucket) := [p |
+	some p in cfn.resources("AWS::S3::BucketPolicy")
+	pp := cfn.properties(p)
+	_matches_bucket(bucket, pp.Bucket)
+]
+
+_bucket_enforces_https(bucket) if {
+	some p in _policies_for_bucket(bucket)
+	pp := cfn.properties(p)
+	some s in _as_array(pp.PolicyDocument.Statement)
+	_specifies_secure_transport(s)
 }
 
-# Utility: turns anything into an array, if it's not an array already.
-as_array(x) = [x] {not is_array(x)} else = x {true}
+findings contains finding if {
+	some b in cfn.resources("AWS::S3::Bucket")
+	not _bucket_enforces_https(b)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("S3 Bucket %q has no attached BucketPolicy statement denying non-HTTPS requests.", [b.logical_id]),
+		"artifact_uri": b.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("AWS::S3::Bucket/%s", [b.logical_id]),
+	}
+}

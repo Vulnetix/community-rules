@@ -1,47 +1,57 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-package rules.tf_aws_security_group_ingress_anywhere
+# Adapted from https://github.com/fugue/regula (FG_R00377).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
+# Simplified: scans aws_security_group ingress sub-blocks; flags 0.0.0.0/0 ingress to ports other than 80 and 443.
 
-import data.aws.security_groups.library as sglib
+package vulnetix.rules.fugue_tf_aws_sg_01
 
-__rego__metadoc__ := {
-  "custom": {
-    "severity": "Medium"
-  },
-  "description": "VPC security group rules should not permit ingress from '0.0.0.0/0' except to ports 80 and 443. VPC firewall rules should not permit unrestricted access from the internet, with the exception of port 80 (HTTP) and port 443 (HTTPS). Web applications or APIs generally need to be publicly accessible.",
-  "id": "FG_R00377",
-  "title": "VPC security group rules should not permit ingress from '0.0.0.0/0' except to ports 80 and 443"
+import rego.v1
+
+import data.vulnetix.fugue.tf
+
+metadata := {
+	"id": "FUGUE-TF-AWS-SG-01",
+	"name": "VPC security group rules should not permit ingress from 0.0.0.0/0 except to ports 80 and 443",
+	"description": "VPC firewall rules should not permit unrestricted access from the internet, except for HTTP (80) and HTTPS (443).",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["terraform", "hcl"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-284"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "aws", "security_group"],
 }
 
-resource_type := "aws_security_group"
+whitelisted_ports := {80, 443}
 
-whitelisted_ports = {80, 443}
-
-whitelisted_ingress_rule(rule) {
-  rule.from_port == rule.to_port
-  whitelisted_ports[rule.from_port]
+findings contains finding if {
+	some sg in tf.resources("aws_security_group")
+	some rule in tf.sub_blocks(sg.block, "ingress")
+	_rule_zero_cidr(rule)
+	not _rule_whitelisted(rule)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("aws_security_group %q has an ingress rule from 0.0.0.0/0 not whitelisted to port 80/443.", [sg.name]),
+		"artifact_uri": sg.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [sg.type, sg.name]),
+	}
 }
 
-bad_ingress_rule(rule) {
-  sglib.rule_zero_cidr(rule)
-  not sglib.rule_self_only(rule)
-  not whitelisted_ingress_rule(rule)
+_rule_zero_cidr(rule) if {
+	cidrs := tf.string_list_attr(rule, "cidr_blocks")
+	some c in cidrs
+	c == "0.0.0.0/0"
 }
 
-default deny = false
-
-deny {
-  rule = input.ingress[_]
-  bad_ingress_rule(rule)
+_rule_whitelisted(rule) if {
+	from := tf.number_attr(rule, "from_port")
+	to := tf.number_attr(rule, "to_port")
+	from == to
+	whitelisted_ports[from]
 }

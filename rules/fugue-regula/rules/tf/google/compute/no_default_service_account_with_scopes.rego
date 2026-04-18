@@ -1,48 +1,58 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-package rules.tf_google_compute_no_default_service_account_with_scopes
+# Adapted from https://github.com/fugue/regula (FG_R00412).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-import data.google.compute.compute_instance_library as lib
+package vulnetix.rules.fugue_tf_gcp_gce_no_default_service_account_with_scopes
 
-__rego__metadoc__ := {
-  "custom": {
-    "controls": {
-      "CIS-Google_v1.1.0": [
-        "CIS-Google_v1.1.0_4.2"
-      ],
-      "CIS-Google_v1.2.0": [
-        "CIS-Google_v1.2.0_4.2"
-      ]
-    },
-    "severity": "High"
-  },
-  "description": "Compute instances should not use the default service account with full access to all Cloud APIs. If using the default Compute Engine service account (which is not recommended), note that the \"Editor\" role is assigned with three possible scopes: allow default access, allow full access to all Cloud APIs, and set access for each Cloud API. Avoid allowing the scope for full access to all Cloud APIs, as this may enable users accessing the Compute Engine instance to perform cloud operations outside the scope of responsibility, or increase the potential impact of a compromised instance. Note that GKE-created instances should be exempted from this.",
-  "id": "FG_R00412",
-  "title": "Compute instances should not use the default service account with full access to all Cloud APIs"
+import rego.v1
+
+import data.vulnetix.fugue.tf
+
+metadata := {
+	"id": "FUGUE-TF-GCP-GCE-08",
+	"name": "Compute instances should not use the default service account with full access to all Cloud APIs",
+	"description": "Compute instances should not use the default service account with full access to all Cloud APIs. If using the default Compute Engine service account (which is not recommended), note that the \"Editor\" role is assigned with three possible scopes: allow default access, allow full access to all Cloud APIs, and set access for each Cloud API. Avoid allowing the scope for full access to all Cloud APIs, as this may enable users accessing the Compute Engine instance to perform cloud operations outside the scope of responsibility, or increase the potential impact of a compromised instance. Note that GKE-created instances should be exempted from this.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["terraform", "hcl"],
+	"severity": "high",
+	"level": "error",
+	"kind": "iac",
+	"cwe": ["CWE-269"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "gcp", "compute", "iam"],
 }
 
-resource_type := "google_compute_instance"
-
-default deny = false
-
-invalid_scopes = {
-  "https://www.googleapis.com/auth/cloud-platform",
-  "cloud-platform"
+findings contains finding if {
+	some r in tf.resources("google_compute_instance")
+	some sa in tf.sub_blocks(r.block, "service_account")
+	_is_default_service_account(sa)
+	_has_invalid_scope(sa)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("google_compute_instance %q uses the default service account with full cloud-platform scope.", [r.name]),
+		"artifact_uri": r.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }
 
-deny {
-  sa = input.service_account[_]
-  lib.is_default_service_account(sa)
-  invalid_scopes[sa.scopes[_]]
+_is_default_service_account(sa) if {
+	email := tf.string_attr(sa, "email")
+	regex.match(`compute@developer\.gserviceaccount\.com`, email)
+}
+
+_is_default_service_account(sa) if not tf.has_key(sa, "email")
+
+_has_invalid_scope(sa) if {
+	some s in tf.string_list_attr(sa, "scopes")
+	s == "https://www.googleapis.com/auth/cloud-platform"
+}
+
+_has_invalid_scope(sa) if {
+	some s in tf.string_list_attr(sa, "scopes")
+	s == "cloud-platform"
 }

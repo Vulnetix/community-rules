@@ -1,68 +1,59 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-package rules.tf_aws_cloudtrail_target
+# Adapted from https://github.com/fugue/regula (FG_R00028).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
+# Simplified: flags CloudTrail target buckets with a literal public-read/public-read-write acl.
 
-import data.fugue
-import data.aws.s3.s3_library as lib
+package vulnetix.rules.fugue_tf_aws_ct_06
 
+import rego.v1
 
-__rego__metadoc__ := {
-  "custom": {
-    "controls": {
-      "CIS-AWS_v1.2.0": [
-        "CIS-AWS_v1.2.0_2.3"
-      ],
-      "CIS-AWS_v1.3.0": [
-        "CIS-AWS_v1.3.0_3.3"
-      ],
-      "CIS-AWS_v1.4.0": [
-        "CIS-AWS_v1.4.0_3.3"
-      ]
-    },
-    "severity": "Critical"
-  },
-  "description": "S3 bucket ACLs should not have public access on S3 buckets that store CloudTrail log files. CloudTrail logs a record of every API call made in your AWS account to S3 buckets. It is recommended that the bucket policy, or access control list (ACL), applied to these S3 buckets should prevent public access. Allowing public access to CloudTrail log data may aid an adversary in identifying weaknesses in the affected account's use or configuration.",
-  "id": "FG_R00028",
-  "title": "S3 bucket ACLs should not have public access on S3 buckets that store CloudTrail log files"
-}
+import data.vulnetix.fugue.tf
 
-cloudtrails = fugue.resources("aws_cloudtrail")
-buckets = fugue.resources("aws_s3_bucket")
-
-cloudtrail_buckets = {bucket_id: bucket |
-  buckets[bucket_id] = bucket
-  cloudtrails[_] = ct
-  lib.bucket_name_or_id(bucket) == ct.s3_bucket_name
+metadata := {
+	"id": "FUGUE-TF-AWS-CT-06",
+	"name": "CloudTrail S3 target bucket ACLs should not be public",
+	"description": "S3 bucket ACLs should not allow public access on buckets that store CloudTrail log files. Public access may aid adversaries in identifying weaknesses.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["terraform", "hcl"],
+	"severity": "critical",
+	"level": "error",
+	"kind": "iac",
+	"cwe": ["CWE-284"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "aws", "cloudtrail", "s3", "public"],
 }
 
 public_acls := {"public-read", "public-read-write"}
 
-bucket_public_acl(bucket) {
-  public_acls[bucket.acl]
-} {
-  acl := lib.bucket_acls_by_bucket[lib.bucket_name_or_id(bucket)]
-  public_acls[acl.acl]
+findings contains finding if {
+	some r in tf.resources("aws_cloudtrail")
+	matches := regex.find_all_string_submatch_n(`s3_bucket_name\s*=\s*aws_s3_bucket\.([A-Za-z_][A-Za-z0-9_]*)\b`, r.block, -1)
+	some m in matches
+	bucket_name := m[1]
+	_bucket_public(bucket_name)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("CloudTrail %q target bucket %q has a public ACL.", [r.name, bucket_name]),
+		"artifact_uri": r.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }
 
-resource_type := "MULTIPLE"
+_bucket_public(bucket_name) if {
+	some b in tf.resources("aws_s3_bucket")
+	b.name == bucket_name
+	acl := tf.string_attr(b.block, "acl")
+	acl in public_acls
+}
 
-policy[j] {
-  buck = cloudtrail_buckets[_]
-  not bucket_public_acl(buck)
-  j = fugue.allow_resource(buck)
-} {
-  buck = cloudtrail_buckets[_]
-  bucket_public_acl(buck)
-  j = fugue.deny_resource(buck)
+_bucket_public(bucket_name) if {
+	some a in tf.resources("aws_s3_bucket_acl")
+	regex.match(sprintf(`bucket\s*=\s*aws_s3_bucket\.%s\b`, [bucket_name]), a.block)
+	acl := tf.string_attr(a.block, "acl")
+	acl in public_acls
 }

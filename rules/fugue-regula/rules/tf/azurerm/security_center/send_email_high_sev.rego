@@ -1,52 +1,39 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-package rules.tf_azurerm_security_center_send_email_high_sev
+# Adapted from https://github.com/fugue/regula (FG_R00468).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-import data.fugue
+package vulnetix.rules.fugue_tf_az_sc_email_high_sev
 
-__rego__metadoc__ := {
-  "custom": {
-    "controls": {
-      "CIS-Azure_v1.3.0": [
-        "CIS-Azure_v1.3.0_2.14"
-      ]
-    },
-    "severity": "Medium"
-  },
-  "description": "Security Center ‘Send email notification for high severity alerts’ should be enabled. Security Center email notifications ensure that the appropriate individuals in an organization are notified when issues occur, speeding up time to remediation. If using the Azure CLI or API, notifications are sent for \"high\" or greater severity alerts. If using the Azure Portal, users have the additional option of configuring the severity level.",
-  "id": "FG_R00468",
-  "title": "Security Center ‘Send email notification for high severity alerts’ should be enabled"
+import rego.v1
+
+import data.vulnetix.fugue.tf
+
+metadata := {
+	"id": "FUGUE-TF-AZ-SC-01",
+	"name": "Security Center 'Send email notification for high severity alerts' should be enabled",
+	"description": "Security Center 'Send email notification for high severity alerts' should be enabled. Security Center email notifications ensure that the appropriate individuals in an organization are notified when issues occur, speeding up time to remediation.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["terraform", "hcl"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-778"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "azure", "security-center", "notifications"],
 }
 
-contacts = fugue.resources("azurerm_security_center_contact")
-
-resource_type := "MULTIPLE"
-
-policy[p] {
-  contact = contacts[_]
-  not contact.alert_notifications
-  p = fugue.deny_resource(contact)
-} {
-  contact = contacts[_]
-  contact.alert_notifications == false
-  p = fugue.deny_resource(contact)
-} {
-  contact = contacts[_]
-  contact.alert_notifications == true
-  p = fugue.allow_resource(contact)
-} {
-  fugue.input_type == "tf_runtime"
-  count(contacts) == 0
-  p = fugue.missing_resource("azurerm_security_center_contact")
+findings contains finding if {
+	some r in tf.resources("azurerm_security_center_contact")
+	not tf.bool_attr(r.block, "alert_notifications") == true
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("Security Center contact %q does not set alert_notifications = true.", [r.name]),
+		"artifact_uri": r.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }

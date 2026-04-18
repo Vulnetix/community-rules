@@ -1,60 +1,64 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-package rules.cfn_cloudtrail_s3_access_logging
+# Adapted from https://github.com/fugue/regula (FG_R00031).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-import data.fugue
-import data.cfn.s3
+package vulnetix.rules.fugue_cfn_cloudtrail_s3_access_logging
 
-__rego__metadoc__ := {
-  "custom": {
-    "controls": {
-      "CIS-AWS_v1.2.0": [
-        "CIS-AWS_v1.2.0_2.6"
-      ],
-      "CIS-AWS_v1.3.0": [
-        "CIS-AWS_v1.3.0_3.6"
-      ],
-      "CIS-AWS_v1.4.0": [
-        "CIS-AWS_v1.4.0_3.6"
-      ]
-    },
-    "severity": "Medium"
-  },
-  "description": "S3 bucket access logging should be enabled on S3 buckets that store CloudTrail log files. It is recommended that users enable bucket access logging on the S3 bucket storing CloudTrail log data. Such logging tracks access requests to this S3 bucket and can be useful in security and incident response workflows.",
-  "id": "FG_R00031",
-  "title": "S3 bucket access logging should be enabled on S3 buckets that store CloudTrail log files"
+import rego.v1
+
+import data.vulnetix.fugue.cfn
+
+metadata := {
+	"id": "FUGUE-CFN-CT-04",
+	"name": "S3 buckets storing CloudTrail logs should have access logging enabled",
+	"description": "S3 bucket access logging should be enabled on S3 buckets that store CloudTrail log files. Bucket access logging tracks access requests and can be useful in security and incident response workflows.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["yaml", "json"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-778"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["cloudformation", "aws", "cloudtrail", "s3", "logging"],
 }
 
-input_type := "cfn"
-resource_type := "MULTIPLE"
-
-cloudtrails = fugue.resources("AWS::CloudTrail::Trail")
-buckets = fugue.resources("AWS::S3::Bucket")
-
-cts_with_access_logging[ct_id] {
-  bucket = buckets[_]
-  ct = cloudtrails[ct_id]
-  s3.matches_bucket_name_or_id(bucket, ct.S3BucketName)
-  count(bucket.LoggingConfiguration) > 0
+# Best-effort bucket match: name-equal or CFN Ref to logical id.
+_matches_bucket(bucket_entry, s3_bucket_name) if {
+	props := cfn.properties(bucket_entry)
+	props.BucketName == s3_bucket_name
 }
 
-policy[j] {
-  ct = cloudtrails[ct_id]
-  cts_with_access_logging[ct_id]
-  j = fugue.allow_resource(ct)
-} {
-  ct = cloudtrails[ct_id]
-  not cts_with_access_logging[ct_id]
-  j = fugue.deny_resource(ct)
+_matches_bucket(bucket_entry, s3_bucket_name) if {
+	is_object(s3_bucket_name)
+	s3_bucket_name.Ref == bucket_entry.logical_id
+}
+
+_has_logging(bucket_entry) if {
+	props := cfn.properties(bucket_entry)
+	lc := props.LoggingConfiguration
+	count(lc) > 0
+}
+
+_ct_has_logged_target_bucket(ct_entry) if {
+	ct_props := cfn.properties(ct_entry)
+	ct_bucket := ct_props.S3BucketName
+	some b in cfn.resources("AWS::S3::Bucket")
+	_matches_bucket(b, ct_bucket)
+	_has_logging(b)
+}
+
+findings contains finding if {
+	some r in cfn.resources("AWS::CloudTrail::Trail")
+	not _ct_has_logged_target_bucket(r)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("CloudTrail Trail %q stores logs in an S3 bucket without access logging enabled.", [r.logical_id]),
+		"artifact_uri": r.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("AWS::CloudTrail::Trail/%s", [r.logical_id]),
+	}
 }

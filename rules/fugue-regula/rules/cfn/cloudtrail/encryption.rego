@@ -1,45 +1,44 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-package rules.cfn_cloudtrail_encryption
+# Adapted from https://github.com/fugue/regula (FG_R00035).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-__rego__metadoc__ := {
-  "custom": {
-    "controls": {
-      "CIS-AWS_v1.2.0": [
-        "CIS-AWS_v1.2.0_2.7"
-      ],
-      "CIS-AWS_v1.3.0": [
-        "CIS-AWS_v1.3.0_3.7"
-      ],
-      "CIS-AWS_v1.4.0": [
-        "CIS-AWS_v1.4.0_3.7"
-      ]
-    },
-    "severity": "High"
-  },
-  "description": "CloudTrail log files should be encrypted using KMS CMKs. By default, the log files delivered by CloudTrail to your bucket are encrypted with Amazon S3-managed encryption keys (SSE-S3). To get control over key rotation and obtain auditing visibility into key usage, use SSE-KMS to encrypt your log files.",
-  "id": "FG_R00035",
-  "title": "CloudTrail log files should be encrypted using KMS CMKs"
+package vulnetix.rules.fugue_cfn_cloudtrail_encryption
+
+import rego.v1
+
+import data.vulnetix.fugue.cfn
+
+metadata := {
+	"id": "FUGUE-CFN-CT-02",
+	"name": "CloudTrail log files should be encrypted using KMS CMKs",
+	"description": "CloudTrail log files should be encrypted using KMS CMKs. Using SSE-KMS (customer-managed key) instead of the default SSE-S3 provides key rotation control and auditing visibility into key usage.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["yaml", "json"],
+	"severity": "high",
+	"level": "error",
+	"kind": "iac",
+	"cwe": ["CWE-311"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["cloudformation", "aws", "cloudtrail", "encryption"],
 }
 
-input_type := "cfn"
-resource_type := "AWS::CloudTrail::Trail"
+findings contains finding if {
+	some r in cfn.resources("AWS::CloudTrail::Trail")
+	props := cfn.properties(r)
+	not _has_kms(props)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("CloudTrail Trail %q does not specify a KMSKeyId for log file encryption.", [r.logical_id]),
+		"artifact_uri": r.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("AWS::CloudTrail::Trail/%s", [r.logical_id]),
+	}
+}
 
-default allow = false
-
-allow {
-  # Assuming the template is valid, it should be sufficient to enforce that this prop
-  # is specified
-  input.KMSKeyId != null
+_has_kms(props) if {
+	props.KMSKeyId != null
 }

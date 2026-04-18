@@ -1,61 +1,55 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-package rules.tf_azurerm_network_application_gateway_waf_enabled
+# Adapted from https://github.com/fugue/regula (FG_R00224).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-import data.fugue
+package vulnetix.rules.fugue_tf_az_net_appgw_waf
 
+import rego.v1
 
-__rego__metadoc__ := {
-  "custom": {
-    "severity": "Medium"
-  },
-  "description": "Ensure Azure Application Gateway Web application firewall (WAF) is enabled. Azure Application Gateway offers a web application firewall (WAF) that provides centralized protection of your web applications from common exploits and vulnerabilities. Web applications are increasingly targeted by malicious attacks that exploit commonly known vulnerabilities.",
-  "id": "FG_R00224",
-  "title": "Ensure Azure Application Gateway Web application firewall (WAF) is enabled"
+import data.vulnetix.fugue.tf
+
+metadata := {
+	"id": "FUGUE-TF-AZ-NET-01",
+	"name": "Ensure Azure Application Gateway Web application firewall (WAF) is enabled",
+	"description": "Ensure Azure Application Gateway Web application firewall (WAF) is enabled. Azure Application Gateway offers a WAF that provides centralized protection of web applications from common exploits and vulnerabilities.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["terraform", "hcl"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-693"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "azure", "network", "waf"],
 }
 
-# WAF configuration options are only available in WAF or WAF_v2 tiers.
-is_waf_sku(sku) {
-    sku[_].tier == "WAF"
-} {
-    sku[_].tier == "WAF_v2"
+findings contains finding if {
+	some r in tf.resources("azurerm_application_gateway")
+	not _valid_waf(r.block)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("Application Gateway %q does not have WAF SKU tier with waf_configuration.enabled = true.", [r.name]),
+		"artifact_uri": r.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }
 
-# WAF must be enabled
-is_waf_enabled(waf_config) {
-    waf_config[_].enabled = true
+_valid_waf(block) if {
+	_has_waf_sku(block)
+	_waf_enabled(block)
 }
 
-valid_app_gw(gw) {
-    is_waf_sku(gw.sku)
-    is_waf_enabled(gw.waf_configuration)
+_has_waf_sku(block) if {
+	some sku in tf.sub_blocks(block, "sku")
+	tier := tf.string_attr(sku, "tier")
+	tier in {"WAF", "WAF_v2"}
 }
 
-app_gws = fugue.resources("azurerm_application_gateway")
-
-valid_app_gws[id] = app_gw {
-    app_gw = app_gws[id]
-    valid_app_gw(app_gw)
-}
-
-resource_type := "MULTIPLE"
-
-policy[j] {
-  app_gw = valid_app_gws[id]
-  j = fugue.allow_resource(app_gw)
-} {
-  app_gw = app_gws[id]
-  not valid_app_gws[id]
-  j = fugue.deny_resource(app_gw)
+_waf_enabled(block) if {
+	some wc in tf.sub_blocks(block, "waf_configuration")
+	tf.bool_attr(wc, "enabled") == true
 }

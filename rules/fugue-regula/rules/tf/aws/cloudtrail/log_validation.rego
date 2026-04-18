@@ -1,42 +1,39 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-package rules.tf_aws_cloudtrail_log_validation
+# Adapted from https://github.com/fugue/regula (FG_R00027).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-__rego__metadoc__ := {
-  "custom": {
-    "controls": {
-      "CIS-AWS_v1.2.0": [
-        "CIS-AWS_v1.2.0_2.2"
-      ],
-      "CIS-AWS_v1.3.0": [
-        "CIS-AWS_v1.3.0_3.2"
-      ],
-      "CIS-AWS_v1.4.0": [
-        "CIS-AWS_v1.4.0_3.2"
-      ]
-    },
-    "severity": "Medium"
-  },
-  "description": "CloudTrail log file validation should be enabled. It is recommended that file validation be enabled on all CloudTrail logs because it provides additional integrity checking of the log data.",
-  "id": "FG_R00027",
-  "title": "CloudTrail log file validation should be enabled"
+package vulnetix.rules.fugue_tf_aws_ct_03
+
+import rego.v1
+
+import data.vulnetix.fugue.tf
+
+metadata := {
+	"id": "FUGUE-TF-AWS-CT-03",
+	"name": "CloudTrail log file validation should be enabled",
+	"description": "File validation should be enabled on all CloudTrail logs because it provides additional integrity checking of the log data.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["terraform", "hcl"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-354"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "aws", "cloudtrail", "integrity"],
 }
 
-resource_type := "aws_cloudtrail"
-
-default allow = false
-
-allow {
-  input.enable_log_file_validation == true
+findings contains finding if {
+	some r in tf.resources("aws_cloudtrail")
+	tf.is_not_true(r.block, "enable_log_file_validation")
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("CloudTrail %q does not enable enable_log_file_validation.", [r.name]),
+		"artifact_uri": r.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }

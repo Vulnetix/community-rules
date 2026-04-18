@@ -1,47 +1,48 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-package rules.cfn_vpc_default_security_group
+# Adapted from https://github.com/fugue/regula (FG_R00089).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-import data.fugue
+package vulnetix.rules.fugue_cfn_vpc_default_security_group
 
-__rego__metadoc__ := {
-  "custom": {
-    "controls": {
-      "CIS-AWS_v1.2.0": [
-        "CIS-AWS_v1.2.0_4.3"
-      ],
-      "CIS-AWS_v1.3.0": [
-        "CIS-AWS_v1.3.0_5.3"
-      ],
-      "CIS-AWS_v1.4.0": [
-        "CIS-AWS_v1.4.0_5.3"
-      ]
-    },
-    "severity": "Medium"
-  },
-  "description": "VPC default security group should restrict all traffic. Configuring all VPC default security groups to restrict all traffic encourages least privilege security group development and mindful placement of AWS resources into security groups which in turn reduces the exposure of those resources.",
-  "id": "FG_R00089",
-  "title": "VPC default security group should restrict all traffic"
+import rego.v1
+
+import data.vulnetix.fugue.cfn
+
+metadata := {
+	"id": "FUGUE-CFN-VPC-01",
+	"name": "VPC default security group should restrict all traffic",
+	"description": "VPC default security group should restrict all traffic. Restricting all traffic on default security groups encourages least-privilege SG design and mindful placement of AWS resources into explicit security groups.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["yaml", "json"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-284"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["cloudformation", "aws", "vpc", "security-group"],
 }
 
-input_type := "cfn"
-resource_type := "MULTIPLE"
+_targets_default_sg(rule_props) if {
+	gid := rule_props.GroupId
+	is_object(gid)
+	getatt := gid["Fn::GetAtt"]
+	is_array(getatt)
+	getatt[1] == "DefaultSecurityGroup"
+}
 
-ingress_rules = fugue.resources("AWS::EC2::SecurityGroupIngress")
-
-policy[p] {
-  rule = ingress_rules[_]
-  rule.GroupId = {"Fn::GetAtt": [_, "DefaultSecurityGroup"]}
-  p = fugue.deny_resource(rule)
+findings contains finding if {
+	some r in cfn.resources("AWS::EC2::SecurityGroupIngress")
+	props := cfn.properties(r)
+	_targets_default_sg(props)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("SecurityGroupIngress %q adds rules to a VPC DefaultSecurityGroup.", [r.logical_id]),
+		"artifact_uri": r.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("AWS::EC2::SecurityGroupIngress/%s", [r.logical_id]),
+	}
 }

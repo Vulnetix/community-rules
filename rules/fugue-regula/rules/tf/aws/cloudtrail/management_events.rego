@@ -1,42 +1,40 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-package rules.tf_aws_cloudtrail_management_events
+# Adapted from https://github.com/fugue/regula (FG_R00237).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-__rego__metadoc__ := {
-  "custom": {
-    "severity": "Medium"
-  },
-  "description": "CloudTrail trails should be configured to log management events. Management events provide visibility into management operations that are performed on resources in your AWS account. Management events can also include non-API events that occur in your account. For example, when a user logs in to your account, CloudTrail logs the ConsoleLogin event. CloudTrail logging enables security analysis, resource change tracking, and compliance auditing.",
-  "id": "FG_R00237",
-  "title": "CloudTrail trails should be configured to log management events"
+package vulnetix.rules.fugue_tf_aws_ct_04
+
+import rego.v1
+
+import data.vulnetix.fugue.tf
+
+metadata := {
+	"id": "FUGUE-TF-AWS-CT-04",
+	"name": "CloudTrail trails should log management events",
+	"description": "CloudTrail trails should be configured to log management events to provide visibility into management operations performed on resources.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["terraform", "hcl"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-778"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "aws", "cloudtrail", "logging"],
 }
 
-resource_type := "aws_cloudtrail"
-
-contains_element(arr, elem) = true {
-  arr[_] = elem
-} else = false { true }
-
-default deny = false
-
-deny {
-  input.event_selector[_].include_management_events == false
-}
-
-deny {
-  field_selectors = [i | i := input.advanced_event_selector[_].field_selector[_]]
-  count(field_selectors) > 0
-  a = [i | i := contains_element(field_selectors[_].equals, "Management")]
-  not any(a)
+findings contains finding if {
+	some r in tf.resources("aws_cloudtrail")
+	some es in tf.sub_blocks(r.block, "event_selector")
+	tf.bool_attr(es, "include_management_events") == false
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("CloudTrail %q has event_selector with include_management_events = false.", [r.name]),
+		"artifact_uri": r.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }

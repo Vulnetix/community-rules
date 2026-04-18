@@ -1,52 +1,44 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-package rules.tf_google_compute_disable_serial_ports
+# Adapted from https://github.com/fugue/regula (FG_R00415).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-import data.fugue
-import data.google.compute.compute_instance_library as lib
+package vulnetix.rules.fugue_tf_gcp_gce_disable_serial_ports
 
-__rego__metadoc__ := {
-  "custom": {
-    "controls": {
-      "CIS-Google_v1.1.0": [
-        "CIS-Google_v1.1.0_4.5"
-      ],
-      "CIS-Google_v1.2.0": [
-        "CIS-Google_v1.2.0_4.5"
-      ]
-    },
-    "severity": "High"
-  },
-  "description": "Compute instances 'Enable connecting to serial ports' should not be enabled. A Compute Engine instance's serial port - also known as an interactive serial console - does not support IP-based access restrictions. If enabled, the interactive serial console can be used by clients to connect to the instance from any IP address. This enables anyone who has the correct SSH key, username, and other login information to connect to the instance.",
-  "id": "FG_R00415",
-  "title": "Compute instances 'Enable connecting to serial ports' should not be enabled"
+import rego.v1
+
+import data.vulnetix.fugue.tf
+
+metadata := {
+	"id": "FUGUE-TF-GCP-GCE-03",
+	"name": "Compute instances 'Enable connecting to serial ports' should not be enabled",
+	"description": "Compute instances 'Enable connecting to serial ports' should not be enabled. A Compute Engine instance's serial port - also known as an interactive serial console - does not support IP-based access restrictions. If enabled, the interactive serial console can be used by clients to connect to the instance from any IP address. This enables anyone who has the correct SSH key, username, and other login information to connect to the instance.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["terraform", "hcl"],
+	"severity": "high",
+	"level": "error",
+	"kind": "iac",
+	"cwe": ["CWE-284"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "gcp", "compute", "serial-port"],
 }
 
-resource_type := "MULTIPLE"
-
-compute_instances = fugue.resources("google_compute_instance")
-
-serial_port_enabled(instance) {
-  lib.get_metadata_with_default(instance, "serial-port-enable", false)
+findings contains finding if {
+	some r in tf.resources("google_compute_instance")
+	_serial_port_enabled(r.block)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("google_compute_instance %q enables serial-port-enable in metadata.", [r.name]),
+		"artifact_uri": r.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }
 
-policy[j] {
-  instance = compute_instances[_]
-  not serial_port_enabled(instance)
-  j = fugue.allow_resource(instance)
-} {
-  instance = compute_instances[_]
-  serial_port_enabled(instance)
-  j = fugue.deny_resource(instance)
+_serial_port_enabled(block) if {
+	some meta in tf.sub_blocks(block, "metadata")
+	regex.match(`(?m)^\s*"?serial-port-enable"?\s*=\s*"?true"?\b`, meta)
 }

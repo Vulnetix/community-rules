@@ -1,58 +1,65 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-package rules.cfn_api_gateway_classic_custom_domain_name
+# Adapted from https://github.com/fugue/regula (FG_R00375).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-import data.fugue
+package vulnetix.rules.fugue_cfn_api_gateway_classic_custom_domain_name
 
-__rego__metadoc__ := {
-  "custom": {
-    "severity": "Medium"
-  },
-  "description": "API Gateway classic custom domains should use secure TLS protocol versions (1.2 and above). The TLS (Transport Layer Security) protocol secures transmission of data over the internet using standard encryption technology. Encryption should be set with the latest version of TLS where possible. Versions prior to TLS 1.2 are deprecated and usage may pose security risks.",
-  "id": "FG_R00375",
-  "title": "API Gateway classic custom domains should use secure TLS protocol versions (1.2 and above)"
+import rego.v1
+
+import data.vulnetix.fugue.cfn
+
+metadata := {
+	"id": "FUGUE-CFN-API-01",
+	"name": "API Gateway classic custom domains should use TLS 1.2+",
+	"description": "API Gateway classic custom domains should use secure TLS protocol versions (1.2 and above). Versions prior to TLS 1.2 are deprecated and usage may pose security risks.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["yaml", "json"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-327"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["cloudformation", "aws", "api-gateway", "tls"],
 }
 
-input_type := "cfn"
-resource_type := "MULTIPLE"
+_invalid_settings := {"TLS_1_0"}
 
-domain_names = fugue.resources("AWS::ApiGateway::DomainName")
-serverless_apis = fugue.resources("AWS::Serverless::Api")
-
-invalid_settings = {"TLS_1_0"}
-
-valid_domain_name(domain) {
-  domain.SecurityPolicy != null
-  not invalid_settings[domain.SecurityPolicy]
+_valid_domain(domain) if {
+	sp := domain.SecurityPolicy
+	sp != null
+	not _invalid_settings[sp]
 }
 
-policy[j] {
-  domain_name := domain_names[_]
-  valid_domain_name(domain_name)
-  j = fugue.allow_resource(domain_name)
-} {
-  domain_name := domain_names[_]
-  not valid_domain_name(domain_name)
-  j = fugue.deny_resource(domain_name)
-} {
-  serverless_api := serverless_apis[_]
-  serverless_api.Domain != null
-  valid_domain_name(serverless_api.Domain)
-  j = fugue.allow_resource(serverless_api)
-} {
-  serverless_api := serverless_apis[_]
-  serverless_api.Domain != null
-  not valid_domain_name(serverless_api.Domain)
-  j = fugue.deny_resource(serverless_api)
+findings contains finding if {
+	some r in cfn.resources("AWS::ApiGateway::DomainName")
+	props := cfn.properties(r)
+	not _valid_domain(props)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("AWS::ApiGateway::DomainName %q uses a deprecated or missing SecurityPolicy (TLS).", [r.logical_id]),
+		"artifact_uri": r.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("AWS::ApiGateway::DomainName/%s", [r.logical_id]),
+	}
+}
+
+findings contains finding if {
+	some r in cfn.resources("AWS::Serverless::Api")
+	props := cfn.properties(r)
+	domain := props.Domain
+	domain != null
+	not _valid_domain(domain)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("AWS::Serverless::Api %q uses a deprecated or missing SecurityPolicy (TLS).", [r.logical_id]),
+		"artifact_uri": r.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("AWS::Serverless::Api/%s", [r.logical_id]),
+	}
 }

@@ -1,44 +1,46 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# Adapted from https://github.com/fugue/regula (FG_R00341).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-package rules.arm_monitor_log_profile_all_categories
+package vulnetix.rules.fugue_arm_monitor_log_profile_all_categories
 
-import data.fugue
+import rego.v1
 
-__rego__metadoc__ := {
-  "custom": {
-    "controls": {
-      "CIS-Azure_v1.1.0": [
-        "CIS-Azure_v1.1.0_5.1.3"
-      ]
-    },
-    "severity": "Medium"
-  },
-  "description": "The log profile should be configured to export all activities from the control/management plane. A log profile controls how the activity log is exported. Configuring the log profile to collect logs for the categories \"write\", \"delete\" and \"action\" ensures that all the control/management plane activities performed on the subscription are exported.",
-  "id": "FG_R00341",
-  "title": "Monitor audit profile should log all activities"
+import data.vulnetix.fugue.arm
+
+metadata := {
+	"id": "FUGUE-ARM-MON-02",
+	"name": "Monitor audit profile should log all activities",
+	"description": "The log profile should be configured to export all activities from the control/management plane. A log profile controls how the activity log is exported. Configuring the log profile to collect logs for the categories \"write\", \"delete\" and \"action\" ensures that all the control/management plane activities performed on the subscription are exported.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["json"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-778"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["arm", "azure", "monitor", "logging"],
 }
 
-input_type := "arm"
+_required := {"write", "delete", "action"}
 
-resource_type := "Microsoft.Insights/logprofiles"
+_has_all_categories(r) if {
+	cats := {lower(c) | some c in object.get(r.resource.properties, "categories", [])}
+	count(_required - cats) == 0
+}
 
-required_categories := {"write", "delete", "action"}
-
-default allow = false
-
-allow {
-	categories := {lower(c) | c = input.properties.categories[_]}
-	count(required_categories - categories) == 0
+findings contains finding if {
+	some r in arm.resources("Microsoft.Insights/logprofiles")
+	not _has_all_categories(r)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("Log profile %q does not include all of write/delete/action categories.", [r.resource.name]),
+		"artifact_uri": r.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s/%s", [r.resource.type, r.resource.name]),
+	}
 }

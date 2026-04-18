@@ -1,31 +1,39 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-package rules.tf_azurerm_storage_container_private_access
+# Adapted from https://github.com/fugue/regula (FG_R00207).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-__rego__metadoc__ := {
-  "custom": {
-    "severity": "Critical"
-  },
-  "description": "Blob Storage containers should have public access disabled. Anonymous, public read access to a container and its blobs can be enabled in Azure Blob storage. It grants read-only access to these resources without sharing the account key, and without requiring a shared access signature. It is recommended not to provide anonymous access to blob containers until, and unless, it is strongly desired. A shared access signature token should be used for providing controlled and timed access to blob containers.",
-  "id": "FG_R00207",
-  "title": "Blob Storage containers should have public access disabled"
+package vulnetix.rules.fugue_tf_az_sa_container_private
+
+import rego.v1
+
+import data.vulnetix.fugue.tf
+
+metadata := {
+	"id": "FUGUE-TF-AZ-SA-01",
+	"name": "Blob Storage containers should have public access disabled",
+	"description": "Blob Storage containers should have public access disabled. Anonymous, public read access to a container and its blobs can be enabled in Azure Blob storage. A shared access signature token should be used for providing controlled and timed access.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["terraform", "hcl"],
+	"severity": "critical",
+	"level": "error",
+	"kind": "iac",
+	"cwe": ["CWE-284"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "azure", "storage", "public-access"],
 }
 
-resource_type := "azurerm_storage_container"
-
-default allow = false
-
-allow {
-  input.container_access_type == "private"
+findings contains finding if {
+	some r in tf.resources("azurerm_storage_container")
+	not tf.string_attr(r.block, "container_access_type") == "private"
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("Storage container %q does not have container_access_type = \"private\".", [r.name]),
+		"artifact_uri": r.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }

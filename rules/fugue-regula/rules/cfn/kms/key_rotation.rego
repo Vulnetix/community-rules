@@ -1,40 +1,40 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-package rules.cfn_kms_key_rotation
+# Adapted from https://github.com/fugue/regula (FG_R00036).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-__rego__metadoc__ := {
-  "custom": {
-    "controls": {
-      "CIS-AWS_v1.2.0": [
-        "CIS-AWS_v1.2.0_2.8"
-      ],
-      "CIS-AWS_v1.3.0": [
-        "CIS-AWS_v1.3.0_3.8"
-      ]
-    },
-    "severity": "Medium"
-  },
-  "description": "KMS CMK rotation should be enabled. It is recommended that users enable rotation for the customer created AWS Customer Master Key (CMK). Rotating encryption keys helps reduce the potential impact of a compromised key as users cannot use the old key to access the data.",
-  "id": "FG_R00036",
-  "title": "KMS CMK rotation should be enabled"
+package vulnetix.rules.fugue_cfn_kms_key_rotation
+
+import rego.v1
+
+import data.vulnetix.fugue.cfn
+
+metadata := {
+	"id": "FUGUE-CFN-KMS-01",
+	"name": "KMS CMK rotation should be enabled",
+	"description": "KMS CMK rotation should be enabled. Rotating encryption keys helps reduce the potential impact of a compromised key as the old key cannot be used to access the data.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["yaml", "json"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-320"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["cloudformation", "aws", "kms", "encryption"],
 }
 
-input_type := "cfn"
-resource_type := "AWS::KMS::Key"
-
-default allow = false
-
-allow {
-  input.EnableKeyRotation == true
+findings contains finding if {
+	some r in cfn.resources("AWS::KMS::Key")
+	props := cfn.properties(r)
+	not props.EnableKeyRotation == true
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("KMS Key %q does not have EnableKeyRotation set to true.", [r.logical_id]),
+		"artifact_uri": r.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("AWS::KMS::Key/%s", [r.logical_id]),
+	}
 }

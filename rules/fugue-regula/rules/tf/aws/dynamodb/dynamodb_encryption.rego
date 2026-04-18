@@ -1,44 +1,44 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-package rules.tf_aws_dynamodb_dynamodb_encryption
+# Adapted from https://github.com/fugue/regula (FG_R00069).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-import data.fugue
+package vulnetix.rules.fugue_tf_aws_ddb_01
 
+import rego.v1
 
-__rego__metadoc__ := {
-  "custom": {
-    "severity": "Medium"
-  },
-  "description": "DynamoDB tables should be encrypted with AWS or customer managed KMS keys. Although DynamoDB tables are encrypted at rest by default with AWS owned KMS keys, using AWS managed or customer managed KMS keys provides additional functionality, such as viewing key policies, auditing usage, and rotating cryptographic material.",
-  "id": "FG_R00069",
-  "title": "DynamoDB tables should be encrypted with AWS or customer managed KMS keys"
+import data.vulnetix.fugue.tf
+
+metadata := {
+	"id": "FUGUE-TF-AWS-DDB-01",
+	"name": "DynamoDB tables should be encrypted with AWS or customer managed KMS keys",
+	"description": "DynamoDB tables should have server_side_encryption enabled with AWS managed or customer managed KMS keys.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["terraform", "hcl"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-311"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "aws", "dynamodb", "encryption"],
 }
 
-tables = fugue.resources("aws_dynamodb_table")
-
-server_side_encryption_enabled(obj) {
-  obj.server_side_encryption[_].enabled
+findings contains finding if {
+	some r in tf.resources("aws_dynamodb_table")
+	not _sse_enabled(r.block)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("DynamoDB table %q does not enable server_side_encryption.", [r.name]),
+		"artifact_uri": r.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }
 
-resource_type := "MULTIPLE"
-
-policy[j] {
-  tables[_] = obj
-  server_side_encryption_enabled(obj)
-  j = fugue.allow_resource(obj)
-} {
-  tables[_] = obj
-  not server_side_encryption_enabled(obj)
-  j = fugue.deny_resource(obj)
+_sse_enabled(block) if {
+	some sse in tf.sub_blocks(block, "server_side_encryption")
+	tf.bool_attr(sse, "enabled") == true
 }

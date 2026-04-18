@@ -1,41 +1,51 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-package rules.tf_azurerm_monitor_log_profile_retention
+# Adapted from https://github.com/fugue/regula (FG_R00340).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-__rego__metadoc__ := {
-  "custom": {
-    "controls": {
-      "CIS-Azure_v1.1.0": [
-        "CIS-Azure_v1.1.0_5.1.2"
-      ]
-    },
-    "severity": "Medium"
-  },
-  "description": "Monitor 'Activity Log Retention' should be 365 days or greater. A log profile controls how the activity log is exported and retained. Since the average time to detect a breach is 210 days, the activity log should be retained for 365 days or more in order to have time to respond to any incidents.",
-  "id": "FG_R00340",
-  "title": "Monitor 'Activity Log Retention' should be 365 days or greater"
+package vulnetix.rules.fugue_tf_az_mon_log_profile_retention
+
+import rego.v1
+
+import data.vulnetix.fugue.tf
+
+metadata := {
+	"id": "FUGUE-TF-AZ-MON-04",
+	"name": "Monitor 'Activity Log Retention' should be 365 days or greater",
+	"description": "Monitor 'Activity Log Retention' should be 365 days or greater. A log profile controls how the activity log is exported and retained. Since the average time to detect a breach is 210 days, the activity log should be retained for 365 days or more in order to have time to respond to any incidents.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["terraform", "hcl"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-778"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "azure", "monitor", "retention"],
 }
 
-resource_type := "azurerm_monitor_log_profile"
+findings contains finding if {
+	some r in tf.resources("azurerm_monitor_log_profile")
+	not _has_valid_retention(r.block)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("Log profile %q does not retain activity logs for 365+ days (or indefinitely via days=0 & enabled=false).", [r.name]),
+		"artifact_uri": r.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
+}
 
-default allow = false
+_has_valid_retention(block) if {
+	some rp in tf.sub_blocks(block, "retention_policy")
+	tf.bool_attr(rp, "enabled") == true
+	tf.number_attr(rp, "days") >= 365
+}
 
-allow {
-  input.retention_policy[i].enabled == true
-  input.retention_policy[i].days >= 365
-} {
-  # Retain forever.
-  input.retention_policy[i].enabled == false
-  input.retention_policy[i].days == 0
+_has_valid_retention(block) if {
+	some rp in tf.sub_blocks(block, "retention_policy")
+	tf.bool_attr(rp, "enabled") == false
+	tf.number_attr(rp, "days") == 0
 }

@@ -1,40 +1,39 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# Adapted from https://github.com/fugue/regula (FG_R00438).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-# VPC subnet 'Private Google Access' should be enabled.
-# When enabled, VMs in this subnetwork without external IP addresses can
-# access Google APIs and services by using Private Google Access.
-package rules.tf_google_compute_subnet_private_google_access
+package vulnetix.rules.fugue_tf_gcp_gce_subnet_private_google_access
 
-__rego__metadoc__ := {
-  "custom": {
-    "controls": {
-      "CIS-Google_v1.0.0": [
-        "CIS-Google_v1.0.0_3.8"
-      ]
-    },
-    "severity": "Low"
-  },
-  "description": "Enabling \"Private Google Access\" for VPC subnets allows virtual machines to connect to the external IP addresses used by Google APIs and services.",
-  "id": "FG_R00438",
-  "title": "VPC subnet 'Private Google Access' should be enabled"
+import rego.v1
+
+import data.vulnetix.fugue.tf
+
+metadata := {
+	"id": "FUGUE-TF-GCP-GCE-12",
+	"name": "VPC subnet 'Private Google Access' should be enabled",
+	"description": "Enabling \"Private Google Access\" for VPC subnets allows virtual machines to connect to the external IP addresses used by Google APIs and services.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["terraform", "hcl"],
+	"severity": "low",
+	"level": "note",
+	"kind": "iac",
+	"cwe": ["CWE-284"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "gcp", "compute", "networking"],
 }
 
-resource_type := "google_compute_subnetwork"
-
-default allow = false
-
-allow {
-  input.private_ip_google_access == true
+findings contains finding if {
+	some r in tf.resources("google_compute_subnetwork")
+	tf.is_not_true(r.block, "private_ip_google_access")
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("google_compute_subnetwork %q does not enable private_ip_google_access.", [r.name]),
+		"artifact_uri": r.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }

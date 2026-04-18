@@ -1,49 +1,44 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-package rules.tf_aws_rds_backup_retention_period
+# Adapted from https://github.com/fugue/regula (FG_R00107).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-import data.fugue
+package vulnetix.rules.fugue_tf_aws_rds_01
 
+import rego.v1
 
-__rego__metadoc__ := {
-  "custom": {
-    "severity": "Medium"
-  },
-  "description": "RDS instances should have backup retention periods configured. Retention periods for RDS backups should be configured according to business and regulatory needs. Backups should not be retained longer than is strictly necessary. When retention is properly configured, malicious individuals will be unable to retrieve data when it is no longer needed.",
-  "id": "FG_R00107",
-  "title": "RDS instances should have backup retention periods configured"
+import data.vulnetix.fugue.tf
+
+metadata := {
+	"id": "FUGUE-TF-AWS-RDS-01",
+	"name": "RDS instances should have backup retention periods configured",
+	"description": "Retention periods for RDS backups should be configured according to business and regulatory needs so that data can be recovered when needed but is not retained longer than necessary.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["terraform", "hcl"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-693"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "aws", "rds", "backup"],
 }
 
-has_backup_retention_period(inst_or_cluster) {
-  inst_or_cluster.backup_retention_period > 0
+findings contains finding if {
+	some ty in {"aws_db_instance", "aws_rds_cluster"}
+	some r in tf.resources(ty)
+	_missing_retention(r.block)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("%s.%s does not have backup_retention_period > 0.", [r.type, r.name]),
+		"artifact_uri": r.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }
 
-instances_or_clusters[id] = r {rs = fugue.resources("aws_db_instance"); r = rs[id]}
-instances_or_clusters[id] = r {rs = fugue.resources("aws_rds_cluster"); r = rs[id]}
+_missing_retention(block) if not tf.has_key(block, "backup_retention_period")
 
-valid_instances_or_clusters[id] = instance_or_cluster {
-  instance_or_cluster = instances_or_clusters[id]
-  has_backup_retention_period(instance_or_cluster)
-}
-
-resource_type := "MULTIPLE"
-
-policy[j] {
-  valid_instances_or_clusters[id] = instance_or_cluster
-  j = fugue.allow_resource(instance_or_cluster)
-} {
-  instances_or_clusters[id] = instance_or_cluster
-  not valid_instances_or_clusters[id]
-  j = fugue.deny_resource(instance_or_cluster)
-}
+_missing_retention(block) if tf.number_attr(block, "backup_retention_period") == 0

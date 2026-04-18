@@ -1,51 +1,44 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-package rules.tf_google_bigquery_no_public_access
+# Adapted from https://github.com/fugue/regula (FG_R00437).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-import data.fugue
+package vulnetix.rules.fugue_tf_gcp_bigquery_no_public_access
 
-__rego__metadoc__ := {
-  "custom": {
-    "controls": {
-      "CIS-Google_v1.1.0": [
-        "CIS-Google_v1.1.0_7.1"
-      ],
-      "CIS-Google_v1.2.0": [
-        "CIS-Google_v1.2.0_7.1"
-      ]
-    },
-    "severity": "Critical"
-  },
-  "description": "BigQuery datasets should not be anonymously or publicly accessible. BigQuery datasets should not grant the 'allUsers' or 'allAuthenticatedUsers' permissions because these will allow anyone to access the dataset and any stored sensitive data.",
-  "id": "FG_R00437",
-  "title": "BigQuery datasets should not be anonymously or publicly accessible"
+import rego.v1
+
+import data.vulnetix.fugue.tf
+
+metadata := {
+	"id": "FUGUE-TF-GCP-BQ-01",
+	"name": "BigQuery datasets should not be anonymously or publicly accessible",
+	"description": "BigQuery datasets should not be anonymously or publicly accessible. BigQuery datasets should not grant the 'allUsers' or 'allAuthenticatedUsers' permissions because these will allow anyone to access the dataset and any stored sensitive data.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["terraform", "hcl"],
+	"severity": "critical",
+	"level": "error",
+	"kind": "iac",
+	"cwe": ["CWE-284"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "gcp", "bigquery", "public-access"],
 }
 
-resource_type := "google_bigquery_dataset"
-
-anonymous_users = {"allAuthenticatedUsers", "allUsers"}
-
-access_attributes = {"special_group", "iam_member"}
-
-has_anonymous_access(ds) {
-  access_attributes[k]
-  member := ds.access[_][k]
-  anonymous_users[member]
+findings contains finding if {
+	some r in tf.resources("google_bigquery_dataset")
+	_has_anonymous_access(r.block)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("BigQuery dataset %q grants access to allUsers or allAuthenticatedUsers.", [r.name]),
+		"artifact_uri": r.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }
 
-default deny = false
-
-deny {
-  has_anonymous_access(input)
+_has_anonymous_access(block) if {
+	some access in tf.sub_blocks(block, "access")
+	regex.match(`(special_group|iam_member)\s*=\s*"(allUsers|allAuthenticatedUsers)"`, access)
 }

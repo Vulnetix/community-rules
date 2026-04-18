@@ -1,65 +1,66 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-package rules.cfn_cloudtrail_target
+# Adapted from https://github.com/fugue/regula (FG_R00028).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-import data.fugue
-import data.cfn.s3
+package vulnetix.rules.fugue_cfn_cloudtrail_target
 
-__rego__metadoc__ := {
-  "custom": {
-    "controls": {
-      "CIS-AWS_v1.2.0": [
-        "CIS-AWS_v1.2.0_2.3"
-      ],
-      "CIS-AWS_v1.3.0": [
-        "CIS-AWS_v1.3.0_3.3"
-      ],
-      "CIS-AWS_v1.4.0": [
-        "CIS-AWS_v1.4.0_3.3"
-      ]
-    },
-    "severity": "Critical"
-  },
-  "description": "S3 bucket ACLs should not have public access on S3 buckets that store CloudTrail log files. CloudTrail logs a record of every API call made in your AWS account to S3 buckets. It is recommended that the bucket policy, or access control list (ACL), applied to these S3 buckets should prevent public access. Allowing public access to CloudTrail log data may aid an adversary in identifying weaknesses in the affected account's use or configuration.",
-  "id": "FG_R00028",
-  "title": "S3 bucket ACLs should not have public access on S3 buckets that store CloudTrail log files"
+import rego.v1
+
+import data.vulnetix.fugue.cfn
+
+metadata := {
+	"id": "FUGUE-CFN-CT-05",
+	"name": "S3 buckets storing CloudTrail logs should not be publicly readable",
+	"description": "S3 bucket ACLs should not have public access on S3 buckets that store CloudTrail log files. Allowing public access to CloudTrail log data may aid an adversary in identifying weaknesses in the affected account.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["yaml", "json"],
+	"severity": "critical",
+	"level": "error",
+	"kind": "iac",
+	"cwe": ["CWE-284"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["cloudformation", "aws", "cloudtrail", "s3", "public-access"],
 }
 
-input_type := "cfn"
-cloudtrails := fugue.resources("AWS::CloudTrail::Trail")
-buckets := fugue.resources("AWS::S3::Bucket")
-
-cloudtrail_buckets = {bucket_id: bucket |
-  bucket := buckets[bucket_id]
-  ct := cloudtrails[_]
-  s3.matches_bucket_name_or_id(bucket, ct.S3BucketName)
+_matches_bucket(bucket_entry, s3_bucket_name) if {
+	props := cfn.properties(bucket_entry)
+	props.BucketName == s3_bucket_name
 }
 
-bucket_public_acl(bucket) {
-  bucket.AccessControl == "PublicRead"
-} {
-  bucket.AccessControl == "PublicReadWrite"
+_matches_bucket(bucket_entry, s3_bucket_name) if {
+	is_object(s3_bucket_name)
+	s3_bucket_name.Ref == bucket_entry.logical_id
 }
 
-resource_type := "MULTIPLE"
+_bucket_public_acl(bucket_entry) if {
+	props := cfn.properties(bucket_entry)
+	props.AccessControl == "PublicRead"
+}
 
-policy[j] {
-  bucket := cloudtrail_buckets[_]
-  not bucket_public_acl(bucket)
-  j := fugue.allow_resource(bucket)
-} {
-  bucket := cloudtrail_buckets[_]
-  bucket_public_acl(bucket)
-  j := fugue.deny_resource(bucket)
+_bucket_public_acl(bucket_entry) if {
+	props := cfn.properties(bucket_entry)
+	props.AccessControl == "PublicReadWrite"
+}
+
+_is_cloudtrail_bucket(bucket_entry) if {
+	some ct in cfn.resources("AWS::CloudTrail::Trail")
+	ct_props := cfn.properties(ct)
+	_matches_bucket(bucket_entry, ct_props.S3BucketName)
+}
+
+findings contains finding if {
+	some b in cfn.resources("AWS::S3::Bucket")
+	_is_cloudtrail_bucket(b)
+	_bucket_public_acl(b)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("S3 bucket %q stores CloudTrail logs and has a public-read ACL.", [b.logical_id]),
+		"artifact_uri": b.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("AWS::S3::Bucket/%s", [b.logical_id]),
+	}
 }

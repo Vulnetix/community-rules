@@ -1,43 +1,66 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-package rules.tf_aws_security_groups_elb_all
+# Adapted from https://github.com/fugue/regula (FG_R00102).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
+# Simplified: flags any aws_security_group referenced by an aws_elb/aws_lb that has an ingress rule covering all ports.
 
-import data.aws.security_groups.library
-import data.fugue
+package vulnetix.rules.fugue_tf_aws_sg_02
 
+import rego.v1
 
-__rego__metadoc__ := {
-  "custom": {
-    "severity": "High"
-  },
-  "description": "ELB listener security groups should not be set to TCP all. ELB security groups should permit access only to necessary ports to prevent access to potentially vulnerable services on other ports.",
-  "id": "FG_R00102",
-  "title": "ELB listener security groups should not be set to TCP all"
+import data.vulnetix.fugue.tf
+
+metadata := {
+	"id": "FUGUE-TF-AWS-SG-02",
+	"name": "ELB listener security groups should not permit all ports",
+	"description": "ELB security groups should permit access only to necessary ports to prevent access to potentially vulnerable services on other ports.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["terraform", "hcl"],
+	"severity": "high",
+	"level": "error",
+	"kind": "iac",
+	"cwe": ["CWE-284"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "aws", "security_group", "elb"],
 }
 
-invalid_security_group(sg) {
-  library.rule_all_ports(sg.ingress[_])
+findings contains finding if {
+	some sg in tf.resources("aws_security_group")
+	_is_elb_connected(sg.name)
+	some rule in tf.sub_blocks(sg.block, "ingress")
+	_rule_all_ports(rule)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("aws_security_group %q attached to an ELB has an all-ports ingress rule.", [sg.name]),
+		"artifact_uri": sg.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [sg.type, sg.name]),
+	}
 }
 
-resource_type := "MULTIPLE"
-
-policy[j] {
-  sg = library.load_balancer_security_groups[_]
-  invalid_security_group(sg)
-  j = fugue.deny_resource(sg)
-} {
-  sg = library.load_balancer_security_groups[_]
-  not invalid_security_group(sg)
-  j = fugue.allow_resource(sg)
+_is_elb_connected(name) if {
+	some lb in tf.resources("aws_elb")
+	tf.references(lb.block, "aws_security_group", name)
 }
+
+_is_elb_connected(name) if {
+	some lb in tf.resources("aws_lb")
+	tf.references(lb.block, "aws_security_group", name)
+}
+
+_is_elb_connected(name) if {
+	some lb in tf.resources("aws_alb")
+	tf.references(lb.block, "aws_security_group", name)
+}
+
+_rule_all_ports(block) if {
+	from := tf.number_attr(block, "from_port")
+	to := tf.number_attr(block, "to_port")
+	from == 0
+	to >= 65535
+}
+
+_rule_all_ports(block) if tf.string_attr(block, "protocol") == "-1"

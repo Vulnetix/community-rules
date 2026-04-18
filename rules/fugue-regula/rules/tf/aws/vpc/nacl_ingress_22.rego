@@ -1,64 +1,67 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-package rules.tf_aws_vpc_nacl_ingress_22
+# Adapted from https://github.com/fugue/regula (FG_R00357).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
+# Simplified: flags aws_network_acl with an ingress block allowing port 22 from 0.0.0.0/0, and standalone aws_network_acl_rule of the same.
 
-import data.aws.vpc.nacl_library as lib
-import data.fugue
+package vulnetix.rules.fugue_tf_aws_vpc_02
 
-# https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/network_acl
-# https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/network_acl_rule
+import rego.v1
 
-__rego__metadoc__ := {
-  "custom": {
-    "controls": {
-      "CIS-AWS_v1.3.0": [
-        "CIS-AWS_v1.3.0_5.1"
-      ]
-    },
-    "severity": "High"
-  },
-  "description": "VPC network ACLs should not allow ingress from 0.0.0.0/0 to port 22. Public access to remote server administration ports, such as 22 and 3389, increases resource attack surface and unnecessarily raises the risk of resource compromise.",
-  "id": "FG_R00357",
-  "title": "VPC network ACLs should not allow ingress from 0.0.0.0/0 to port 22"
+import data.vulnetix.fugue.tf
+
+metadata := {
+	"id": "FUGUE-TF-AWS-VPC-02",
+	"name": "VPC network ACLs should not allow ingress from 0.0.0.0/0 to port 22 (SSH)",
+	"description": "Public access to remote server administration ports such as 22 increases attack surface and unnecessarily raises the risk of compromise.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["terraform", "hcl"],
+	"severity": "high",
+	"level": "error",
+	"kind": "iac",
+	"cwe": ["CWE-284"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "aws", "vpc", "nacl"],
 }
 
-resource_type := "MULTIPLE"
-
-nacls = fugue.resources("aws_network_acl")
-
-# Return true if deny rule is lower (aka takes precedence)
-lower_deny(deny, allow) {
-  deny < allow
+findings contains finding if {
+	some nacl in tf.resources("aws_network_acl")
+	some rule in tf.sub_blocks(nacl.block, "ingress")
+	lower(tf.string_attr(rule, "action")) == "allow"
+	tf.string_attr(rule, "cidr_block") == "0.0.0.0/0"
+	_covers_port(rule, 22)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("aws_network_acl %q allows ingress from 0.0.0.0/0 to port 22.", [nacl.name]),
+		"artifact_uri": nacl.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [nacl.type, nacl.name]),
+	}
 }
 
-# Good nacl rules either:
-#   - Have no ALLOW rules
-#   - Have DENY rules before any ALLOW rules
-is_good_nacl(nacl) {
-  allow = lib.lowest_allow_ingress_zero_cidr_by_port(nacl, 22)
-  deny = lib.lowest_deny_ingress_zero_cidr_by_port(nacl, 22)
-  lower_deny(deny, allow)
-} {
-  not lib.lowest_allow_ingress_zero_cidr_by_port(nacl, 22)
+findings contains finding if {
+	some r in tf.resources("aws_network_acl_rule")
+	lower(tf.string_attr(r.block, "rule_action")) == "allow"
+	tf.is_not_true(r.block, "egress")
+	tf.string_attr(r.block, "cidr_block") == "0.0.0.0/0"
+	_covers_port(r.block, 22)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("aws_network_acl_rule %q allows ingress from 0.0.0.0/0 to port 22.", [r.name]),
+		"artifact_uri": r.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }
 
-policy[j] {
-  nacl = nacls[_]
-  is_good_nacl(nacl)
-  j = fugue.allow_resource(nacl)
-} {
-  nacl = nacls[_]
-  not is_good_nacl(nacl)
-  j = fugue.deny_resource(nacl)
+_covers_port(block, port) if {
+	from := tf.number_attr(block, "from_port")
+	to := tf.number_attr(block, "to_port")
+	from <= port
+	port <= to
 }

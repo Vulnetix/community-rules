@@ -1,44 +1,48 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-package rules.cfn_s3_block_public_access
+# Adapted from https://github.com/fugue/regula (FG_R00229).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-__rego__metadoc__ := {
-  "custom": {
-    "controls": {
-      "CIS-AWS_v1.3.0": [
-        "CIS-AWS_v1.3.0_1.20"
-      ],
-      "CIS-AWS_v1.4.0": [
-        "CIS-AWS_v1.4.0_2.1.5"
-      ]
-    },
-    "severity": "High"
-  },
-  "description": "S3 buckets should have all `block public access` options enabled. AWS's S3 Block Public Access feature has four settings: BlockPublicAcls, IgnorePublicAcls, BlockPublicPolicy, and RestrictPublicBuckets. All four settings should be enabled to help prevent the risk of a data breach.",
-  "id": "FG_R00229",
-  "title": "S3 buckets should have all `block public access` options enabled"
+package vulnetix.rules.fugue_cfn_s3_block_public_access
+
+import rego.v1
+
+import data.vulnetix.fugue.cfn
+
+metadata := {
+	"id": "FUGUE-CFN-S3-01",
+	"name": "S3 buckets should have all block public access options enabled",
+	"description": "S3 buckets should have all `block public access` options enabled (BlockPublicAcls, IgnorePublicAcls, BlockPublicPolicy, RestrictPublicBuckets) to help prevent the risk of a data breach.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["yaml", "json"],
+	"severity": "high",
+	"level": "error",
+	"kind": "iac",
+	"cwe": ["CWE-284"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["cloudformation", "aws", "s3", "public-access"],
 }
 
-input_type := "cfn"
-resource_type := "AWS::S3::Bucket"
+_all_blocks_enabled(props) if {
+	block := props.PublicAccessBlockConfiguration
+	block.BlockPublicAcls == true
+	block.BlockPublicPolicy == true
+	block.IgnorePublicAcls == true
+	block.RestrictPublicBuckets == true
+}
 
-default allow = false
-
-allow {
-  access_block := input.PublicAccessBlockConfiguration
-  access_block.BlockPublicAcls == true
-  access_block.BlockPublicPolicy == true
-  access_block.IgnorePublicAcls == true
-  access_block.RestrictPublicBuckets == true
+findings contains finding if {
+	some r in cfn.resources("AWS::S3::Bucket")
+	props := cfn.properties(r)
+	not _all_blocks_enabled(props)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("S3 Bucket %q does not have all four PublicAccessBlockConfiguration settings enabled.", [r.logical_id]),
+		"artifact_uri": r.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("AWS::S3::Bucket/%s", [r.logical_id]),
+	}
 }

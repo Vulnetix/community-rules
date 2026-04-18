@@ -1,31 +1,43 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-package rules.tf_aws_redshift_cluster_public
+# Adapted from https://github.com/fugue/regula (FG_R00270).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-__rego__metadoc__ := {
-  "custom": {
-    "severity": "Critical"
-  },
-  "description": "Redshift cluster 'Publicly Accessible' should not be enabled. Publicly accessible Redshift clusters allow any AWS user or anonymous user access to the data in the database. Redshift clusters should not be publicly accessible.",
-  "id": "FG_R00270",
-  "title": "Redshift cluster 'Publicly Accessible' should not be enabled"
+package vulnetix.rules.fugue_tf_aws_rsh_01
+
+import rego.v1
+
+import data.vulnetix.fugue.tf
+
+metadata := {
+	"id": "FUGUE-TF-AWS-RSH-01",
+	"name": "Redshift clusters should not be publicly accessible",
+	"description": "Publicly accessible Redshift clusters allow any AWS user or anonymous user access to the data in the database.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["terraform", "hcl"],
+	"severity": "critical",
+	"level": "error",
+	"kind": "iac",
+	"cwe": ["CWE-284"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "aws", "redshift", "public"],
 }
 
-resource_type := "aws_redshift_cluster"
-
-default allow = false
-
-allow {
-  input.publicly_accessible == false
+findings contains finding if {
+	some r in tf.resources("aws_redshift_cluster")
+	_is_public(r.block)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("aws_redshift_cluster %q is publicly accessible.", [r.name]),
+		"artifact_uri": r.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }
+
+_is_public(block) if not tf.has_key(block, "publicly_accessible")
+
+_is_public(block) if tf.bool_attr(block, "publicly_accessible") == true

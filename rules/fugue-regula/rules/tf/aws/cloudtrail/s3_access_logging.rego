@@ -1,69 +1,56 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-package rules.tf_aws_cloudtrail_s3_access_logging
+# Adapted from https://github.com/fugue/regula (FG_R00031).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
+# Simplified: only checks that the target S3 bucket (by Terraform resource name) has a logging sub-block.
 
-import data.fugue
-import data.aws.s3.s3_library as lib
+package vulnetix.rules.fugue_tf_aws_ct_05
 
+import rego.v1
 
-__rego__metadoc__ := {
-  "custom": {
-    "controls": {
-      "CIS-AWS_v1.2.0": [
-        "CIS-AWS_v1.2.0_2.6"
-      ],
-      "CIS-AWS_v1.3.0": [
-        "CIS-AWS_v1.3.0_3.6"
-      ],
-      "CIS-AWS_v1.4.0": [
-        "CIS-AWS_v1.4.0_3.6"
-      ]
-    },
-    "severity": "Medium"
-  },
-  "description": "S3 bucket access logging should be enabled on S3 buckets that store CloudTrail log files. It is recommended that users enable bucket access logging on the S3 bucket storing CloudTrail log data. Such logging tracks access requests to this S3 bucket and can be useful in security and incident response workflows.",
-  "id": "FG_R00031",
-  "title": "S3 bucket access logging should be enabled on S3 buckets that store CloudTrail log files"
+import data.vulnetix.fugue.tf
+
+metadata := {
+	"id": "FUGUE-TF-AWS-CT-05",
+	"name": "CloudTrail target S3 bucket should have access logging enabled",
+	"description": "S3 bucket access logging should be enabled on S3 buckets that store CloudTrail log files to track access requests for security and incident response.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["terraform", "hcl"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-778"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "aws", "cloudtrail", "s3", "logging"],
 }
 
-cloudtrails = fugue.resources("aws_cloudtrail")
-buckets = fugue.resources("aws_s3_bucket")
-buckets_by_name = {bucket_name: bucket |
-  bucket_name = lib.bucket_name_or_id(bucket)
-  buckets[_] = bucket
+findings contains finding if {
+	some r in tf.resources("aws_cloudtrail")
+	# Match s3_bucket_name = aws_s3_bucket.<name>.id|bucket reference
+	matches := regex.find_all_string_submatch_n(`s3_bucket_name\s*=\s*aws_s3_bucket\.([A-Za-z_][A-Za-z0-9_]*)\b`, r.block, -1)
+	count(matches) > 0
+	some m in matches
+	bucket_name := m[1]
+	not _bucket_has_logging(bucket_name)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("CloudTrail %q target bucket %q has no logging sub-block.", [r.name, bucket_name]),
+		"artifact_uri": r.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }
 
-target_has_access_logging(ct) {
-  bucket_has_logging(buckets_by_name[ct.s3_bucket_name])
+_bucket_has_logging(bucket_name) if {
+	some b in tf.resources("aws_s3_bucket")
+	b.name == bucket_name
+	tf.has_sub_block(b.block, "logging")
 }
 
-bucket_has_logging(bucket) {
-  _ = bucket.logging[_]
-}
-
-bucket_has_logging(bucket) {
-  _ = lib.bucket_logging_by_bucket[lib.bucket_name_or_id(bucket)]
-}
-
-resource_type := "MULTIPLE"
-
-policy[j] {
-  ct = cloudtrails[_]
-  target_has_access_logging(ct)
-  j = fugue.allow_resource(ct)
-} {
-  ct = cloudtrails[_]
-  not target_has_access_logging(ct)
-  j = fugue.deny_resource(ct)
+_bucket_has_logging(bucket_name) if {
+	some lc in tf.resources("aws_s3_bucket_logging")
+	regex.match(sprintf(`bucket\s*=\s*aws_s3_bucket\.%s\b`, [bucket_name]), lc.block)
 }

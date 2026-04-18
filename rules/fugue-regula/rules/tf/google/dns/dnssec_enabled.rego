@@ -1,39 +1,44 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-package rules.tf_google_dns_dnssec_enabled
+# Adapted from https://github.com/fugue/regula (FG_R00404).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-__rego__metadoc__ := {
-  "custom": {
-    "controls": {
-      "CIS-Google_v1.1.0": [
-        "CIS-Google_v1.1.0_3.3"
-      ],
-      "CIS-Google_v1.2.0": [
-        "CIS-Google_v1.2.0_3.3"
-      ]
-    },
-    "severity": "Medium"
-  },
-  "description": "DNS managed zone DNSSEC should be enabled. Attackers can hijack the process of domain/IP lookup and redirect users to a malicious site. Domain Name System Security Extensions (DNSSEC) cryptographically signs DNS records and can help prevent attackers from issuing fake DNS responses that redirect browsers.",
-  "id": "FG_R00404",
-  "title": "DNS managed zone DNSSEC should be enabled"
+package vulnetix.rules.fugue_tf_gcp_dns_dnssec_enabled
+
+import rego.v1
+
+import data.vulnetix.fugue.tf
+
+metadata := {
+	"id": "FUGUE-TF-GCP-DNS-01",
+	"name": "DNS managed zone DNSSEC should be enabled",
+	"description": "DNS managed zone DNSSEC should be enabled. Attackers can hijack the process of domain/IP lookup and redirect users to a malicious site. Domain Name System Security Extensions (DNSSEC) cryptographically signs DNS records and can help prevent attackers from issuing fake DNS responses that redirect browsers.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["terraform", "hcl"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-345"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "gcp", "dns", "dnssec"],
 }
 
-resource_type := "google_dns_managed_zone"
+findings contains finding if {
+	some r in tf.resources("google_dns_managed_zone")
+	not _dnssec_on(r.block)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("google_dns_managed_zone %q does not have dnssec_config.state = \"on\".", [r.name]),
+		"artifact_uri": r.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
+}
 
-default allow = false
-
-allow {
-  input.dnssec_config[_].state == "on"
+_dnssec_on(block) if {
+	some cfg in tf.sub_blocks(block, "dnssec_config")
+	tf.string_attr(cfg, "state") == "on"
 }

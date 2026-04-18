@@ -1,46 +1,63 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-package rules.tf_azurerm_vm_data_disk_encryption
+# Adapted from https://github.com/fugue/regula (FG_R00196).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-import data.azurerm.vm.disk_encryption_library as lib
-import data.fugue
+package vulnetix.rules.fugue_tf_az_vm_data_disk_encryption
 
+import rego.v1
 
-__rego__metadoc__ := {
-  "custom": {
-    "controls": {
-      "CIS-Azure_v1.1.0": [
-        "CIS-Azure_v1.1.0_7.2"
-      ]
-    },
-    "severity": "High"
-  },
-  "description": "Virtual Machines data disks (non-boot volumes) should be encrypted. Encrypting the IaaS VM's Data disks ensures that its entire content is fully unrecoverable without a key and thus protects the volume from unwarranted reads.",
-  "id": "FG_R00196",
-  "title": "Virtual Machines data disks (non-boot volumes) should be encrypted"
+import data.vulnetix.fugue.tf
+
+metadata := {
+	"id": "FUGUE-TF-AZ-VM-01",
+	"name": "Virtual Machines data disks (non-boot volumes) should be encrypted",
+	"description": "Virtual Machines data disks (non-boot volumes) should be encrypted. Encrypting the IaaS VM's Data disks ensures that its entire content is fully unrecoverable without a key and thus protects the volume from unwarranted reads.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["terraform", "hcl"],
+	"severity": "high",
+	"level": "error",
+	"kind": "iac",
+	"cwe": ["CWE-311"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "azure", "vm", "encryption"],
 }
 
-resource_type := "MULTIPLE"
-
-policy[j] {
-  md = lib.managed_disks[_]
-  lib.attached_data_disks[lower(md.id)]
-  lib.encrypted_managed_disks[md.id]
-  j = fugue.allow_resource(md)
-} {
-  md = lib.managed_disks[_]
-  lib.attached_data_disks[lower(md.id)]
-  not lib.encrypted_managed_disks[md.id]
-  j = fugue.deny_resource(md)
+findings contains finding if {
+	some md in tf.resources("azurerm_managed_disk")
+	_is_attached_as_data_disk(md.name)
+	not _disk_is_encrypted(md.block)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("Managed disk %q (attached as data disk) is not encrypted.", [md.name]),
+		"artifact_uri": md.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [md.type, md.name]),
+	}
 }
+
+_is_attached_as_data_disk(md_name) if {
+	some vm in tf.resources("azurerm_virtual_machine")
+	some sdd in tf.sub_blocks(vm.block, "storage_data_disk")
+	tf.references(sdd, "azurerm_managed_disk", md_name)
+}
+
+_is_attached_as_data_disk(md_name) if {
+	some att in tf.resources("azurerm_virtual_machine_data_disk_attachment")
+	tf.references(att.block, "azurerm_managed_disk", md_name)
+}
+
+_disk_is_encrypted(block) if {
+	some es in tf.sub_blocks(block, "encryption_settings")
+	tf.bool_attr(es, "enabled") == true
+}
+
+_disk_is_encrypted(block) if {
+	v := tf.string_attr(block, "disk_encryption_set_id")
+	count(v) > 0
+}
+
+_disk_is_encrypted(block) if tf.has_key(block, "disk_encryption_set_id")

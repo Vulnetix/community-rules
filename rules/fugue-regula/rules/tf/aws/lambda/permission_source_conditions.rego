@@ -1,78 +1,63 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-package rules.tf_aws_lambda_permission_source_conditions
+# Adapted from https://github.com/fugue/regula (FG_R00499).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
+# Simplified: flags aws_lambda_permission with a *.amazonaws.com service principal and no source_arn,
+# or with s3/ses principal missing source_account.
 
-import data.fugue
-import data.aws.lambda.permissions_library as lib
+package vulnetix.rules.fugue_tf_aws_lmb_02
 
-__rego__metadoc__ := {
-  "custom": {
-    "severity": "Medium"
-  },
-  "description": "Lambda permissions with a service principal should contain a source ARN condition to restrict access to a single resource. Lambda permissions for S3 and SES should also contain a source account condition, because S3 and SES ARNs do not contain an AWS account ID.",
-  "id": "FG_R00499",
-  "title": "Lambda permissions with a service principal should apply to only one resource and AWS account"
+import rego.v1
+
+import data.vulnetix.fugue.tf
+
+metadata := {
+	"id": "FUGUE-TF-AWS-LMB-02",
+	"name": "Lambda permissions with a service principal should restrict source ARN and account",
+	"description": "Lambda permissions with a service principal should contain a source ARN condition. S3 and SES also require a source_account condition because their ARNs do not contain an AWS account ID.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["terraform", "hcl"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-284"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "aws", "lambda"],
 }
 
-resource_type := "MULTIPLE"
-
-requires_source_account := {
-  "s3.amazonaws.com",
-  "ses.amazonaws.com"
+findings contains finding if {
+	some p in tf.resources("aws_lambda_permission")
+	principal := tf.string_attr(p.block, "principal")
+	endswith(principal, ".amazonaws.com")
+	not tf.has_key(p.block, "source_arn")
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("aws_lambda_permission %q has service principal but no source_arn.", [p.name]),
+		"artifact_uri": p.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [p.type, p.name]),
+	}
 }
 
-is_service_principal(p) {
-  endswith(p, ".amazonaws.com")
+findings contains finding if {
+	some p in tf.resources("aws_lambda_permission")
+	principal := tf.string_attr(p.block, "principal")
+	_requires_source_account(principal)
+	not tf.has_key(p.block, "source_account")
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("aws_lambda_permission %q has principal %q but no source_account.", [p.name, principal]),
+		"artifact_uri": p.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [p.type, p.name]),
+	}
 }
 
-has_source_arn_and_account(permission) {
-  permission.source_arn = _
-  permission.source_account = _
-}
+_requires_source_account(p) if p == "s3.amazonaws.com"
 
-invalid_permission(permission) = ret {
-  requires_source_account[permission.principal]
-  not has_source_arn_and_account(permission)
-  ret = sprintf("Lambda permission '%s' should have both a source ARN condition and a source account condition.", [permission.id])
-}
-
-invalid_permission(permission) = ret {
-  is_service_principal(permission.principal)
-  not permission.source_arn
-  ret = sprintf("Lambda permission '%s' should have a source ARN condition.", [permission.id])
-}
-
-invalid_perms_by_key := {k: invalid_ps |
-  ps = lib.perm_by_key[k]
-  invalid_ps = [p | p = invalid_permission(ps[_])]
-}
-
-policy[j] {
-  func = lib.funcs_by_key[k][_]
-  not invalid_perms_by_key[k]
-  j = fugue.allow_resource(func)
-}
-
-policy[j] {
-  func = lib.funcs_by_key[k][_]
-  count(invalid_perms_by_key[k]) == 0
-  j = fugue.allow_resource(func)
-}
-
-policy[j] {
-  func = lib.funcs_by_key[k][_]
-  count(invalid_perms_by_key[k]) > 0
-  msg = concat(" ", invalid_perms_by_key[k])
-  j = fugue.deny_resource_with_message(func, msg)
-}
+_requires_source_account(p) if p == "ses.amazonaws.com"

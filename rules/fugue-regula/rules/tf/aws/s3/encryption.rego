@@ -1,64 +1,45 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-package rules.tf_aws_s3_encryption
+# Adapted from https://github.com/fugue/regula (FG_R00099).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-import data.fugue
-import data.aws.s3.s3_library as lib
+package vulnetix.rules.fugue_tf_aws_s3_09
 
-__rego__metadoc__ := {
-  "custom": {
-    "controls": {
-      "CIS-AWS_v1.3.0": [
-        "CIS-AWS_v1.3.0_2.1.1"
-      ],
-      "CIS-AWS_v1.4.0": [
-        "CIS-AWS_v1.4.0_2.1.1"
-      ]
-    },
-    "severity": "High"
-  },
-  "description": "S3 bucket server-side encryption should be enabled. Enabling server-side encryption (SSE) on S3 buckets at the object level protects data at rest and helps prevent the breach of sensitive information assets. Objects can be encrypted with S3 Managed Keys (SSE-S3), KMS Managed Keys (SSE-KMS), or Customer Provided Keys (SSE-C).",
-  "id": "FG_R00099",
-  "title": "S3 bucket server-side encryption should be enabled"
+import rego.v1
+
+import data.vulnetix.fugue.tf
+
+metadata := {
+	"id": "FUGUE-TF-AWS-S3-09",
+	"name": "S3 bucket server-side encryption should be enabled",
+	"description": "Enabling server-side encryption on S3 buckets protects data at rest and helps prevent the breach of sensitive data.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["terraform", "hcl"],
+	"severity": "high",
+	"level": "error",
+	"kind": "iac",
+	"cwe": ["CWE-311"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "aws", "s3", "encryption"],
 }
 
-resource_type := "MULTIPLE"
-
-buckets := fugue.resources("aws_s3_bucket")
-encryption_configs := { id: config |
-  # This is a design-time only resource type, so make sure it exists
-  fugue.input_resource_types["aws_s3_bucket_server_side_encryption_configuration"]
-  config := fugue.resources("aws_s3_bucket_server_side_encryption_configuration")[id]
+findings contains finding if {
+	some b in tf.resources("aws_s3_bucket")
+	not tf.has_sub_block(b.block, "server_side_encryption_configuration")
+	not _has_encryption_resource(b.name)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("aws_s3_bucket %q has no server_side_encryption_configuration and no matching aws_s3_bucket_server_side_encryption_configuration.", [b.name]),
+		"artifact_uri": b.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [b.type, b.name]),
+	}
 }
 
-is_encrypted(bucket) {
-  _ = bucket.server_side_encryption_configuration[_].rule[_][_][_].sse_algorithm
-}
-
-is_encrypted(bucket) {
-  ec := encryption_configs[_]
-  lib.matches_bucket_or_id(ec.bucket, bucket)
-}
-
-policy[j] {
-  bucket := buckets[_]
-  is_encrypted(bucket)
-  j := fugue.allow_resource(bucket)
-}
-
-policy[j] {
-  bucket := buckets[_]
-  not is_encrypted(bucket)
-  j := fugue.deny_resource(bucket)
+_has_encryption_resource(name) if {
+	some r in tf.resources("aws_s3_bucket_server_side_encryption_configuration")
+	tf.references(r.block, "aws_s3_bucket", name)
 }

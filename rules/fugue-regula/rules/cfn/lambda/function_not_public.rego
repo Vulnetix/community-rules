@@ -1,60 +1,60 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-package rules.cfn_lambda_function_not_public
+# Adapted from https://github.com/fugue/regula (FG_R00276).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-import data.fugue
-import data.cfn.lambda_library as lib
+package vulnetix.rules.fugue_cfn_lambda_function_not_public
 
-__rego__metadoc__ := {
-  "custom": {
-    "severity": "High"
-  },
-  "description": "Lambda function policies should not allow global access. Publicly accessible lambda functions may be runnable by anyone and could drive up your costs, disrupt your services, or leak your data.",
-  "id": "FG_R00276",
-  "title": "Lambda function policies should not allow global access"
+import rego.v1
+
+import data.vulnetix.fugue.cfn
+
+metadata := {
+	"id": "FUGUE-CFN-LMB-01",
+	"name": "Lambda function policies should not allow global access",
+	"description": "Lambda function policies should not allow global access. Publicly accessible lambda functions may be invokable by anyone and could drive up costs, disrupt services, or leak data.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["yaml", "json"],
+	"severity": "high",
+	"level": "error",
+	"kind": "iac",
+	"cwe": ["CWE-284"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["cloudformation", "aws", "lambda", "public-access"],
 }
 
-input_type := "cfn"
-resource_type := "MULTIPLE"
-
-permissions = fugue.resources("AWS::Lambda::Permission")
-functions[id] = function {
-  function = fugue.resources("AWS::Lambda::Function")[id]
-} {
-  function = fugue.resources("AWS::Serverless::Function")[id]
+# Match Permission.FunctionName to a Function by Ref to logical id or by exact FunctionName.
+_permission_targets(perm_props, function_entry) if {
+	fn := perm_props.FunctionName
+	is_object(fn)
+	fn.Ref == function_entry.logical_id
 }
 
-bad_permissions_by_function_id = {fid: ps |
-  f := functions[fid]
-  ps = [p |
-    p = permissions[pid]
-    p.Principal == "*"
-    lib.function_name_matches_function(f, p.FunctionName)
-  ]
-  count(ps) > 0
+_permission_targets(perm_props, function_entry) if {
+	fn := perm_props.FunctionName
+	fn_props := cfn.properties(function_entry)
+	fn == fn_props.FunctionName
 }
 
-policy[j] {
-  function := functions[function_id]
-  not bad_permissions_by_function_id[function_id]
-  j := fugue.allow_resource(function)
-} {
-  function := functions[function_id]
-  count(bad_permissions_by_function_id[function_id]) == 0
-  j := fugue.allow_resource(function)
-} {
-  function := functions[function_id]
-  count(bad_permissions_by_function_id[function_id]) > 0
-  j := fugue.deny_resource(function)
+_public_permission_for(function_entry) if {
+	some p in cfn.resources("AWS::Lambda::Permission")
+	pp := cfn.properties(p)
+	pp.Principal == "*"
+	_permission_targets(pp, function_entry)
+}
+
+findings contains finding if {
+	some type_name in ["AWS::Lambda::Function", "AWS::Serverless::Function"]
+	some r in cfn.resources(type_name)
+	_public_permission_for(r)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("%s %q has an AWS::Lambda::Permission granting Principal '*' (public access).", [type_name, r.logical_id]),
+		"artifact_uri": r.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s/%s", [type_name, r.logical_id]),
+	}
 }

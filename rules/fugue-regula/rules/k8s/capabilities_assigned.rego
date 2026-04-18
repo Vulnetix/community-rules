@@ -1,60 +1,47 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# Adapted from https://github.com/fugue/regula (FG_R00493).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-package rules.k8s_capabilities_assigned
+package vulnetix.rules.fugue_k8s_capabilities_assigned
 
-import data.fugue
-import data.k8s
+import rego.v1
 
-__rego__metadoc__ := {
-  "custom": {
-    "severity": "Medium"
-  },
-  "description": "Pods should not run containers with default capabilities assigned. A default set of Linux capabilities are granted when a container runs and many services do not need these capabilities to function. The recommended strategy is to drop all capabilities and then add back only the required ones, according to the principal of least privilege.",
-  "id": "FG_R00493",
-  "title": "Pods should not run containers with default capabilities assigned"
+import data.vulnetix.fugue.k8s
+
+metadata := {
+	"id": "FUGUE-K8S-CAP-02",
+	"name": "Containers should drop all default capabilities",
+	"description": "Containers should explicitly drop all capabilities (ALL) and add back only those needed, following least privilege.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["yaml"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-250"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["kubernetes", "capabilities", "hardening"],
 }
 
-input_type := "k8s"
+_drop_all := {"all", "ALL"}
 
-resource_type := "MULTIPLE"
-
-# At least one of these capabilities needs to be explicitly dropped to pass
-capabilities = {
-	"all",
-	"ALL",
+findings contains finding if {
+	some obj in k8s.resources_with_containers
+	some c in obj.containers
+	not _drops_all(c)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("%s %q does not drop ALL capabilities on container %q.", [obj.resource.kind, obj.resource.metadata.name, object.get(c, "name", "<unnamed>")]),
+		"artifact_uri": obj.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s/%s", [obj.resource.kind, obj.resource.metadata.name]),
+	}
 }
 
-is_valid_container(container) {
-	dropped := k8s.dropped_capabilities(container)
-	count(dropped & capabilities) >= 1
-}
-
-# Confirm every container drops one of the above capabilities
-is_invalid(obj) {
-	container = obj.containers[_]
-	not is_valid_container(container)
-}
-
-policy[j] {
-	obj := k8s.resources_with_containers[_]
-	not is_invalid(obj)
-	j = fugue.allow_resource(obj.resource)
-}
-
-policy[j] {
-	obj := k8s.resources_with_containers[_]
-	is_invalid(obj)
-	j = fugue.deny_resource(obj.resource)
+_drops_all(container) if {
+	dropped := {d | some d in k8s.dropped_capabilities(container)}
+	count(dropped & _drop_all) >= 1
 }

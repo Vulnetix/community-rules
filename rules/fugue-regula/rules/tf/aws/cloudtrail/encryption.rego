@@ -1,67 +1,39 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-package rules.tf_aws_cloudtrail_encryption
+# Adapted from https://github.com/fugue/regula (FG_R00035).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-import data.fugue
+package vulnetix.rules.fugue_tf_aws_ct_02
 
+import rego.v1
 
-__rego__metadoc__ := {
-  "custom": {
-    "controls": {
-      "CIS-AWS_v1.2.0": [
-        "CIS-AWS_v1.2.0_2.7"
-      ],
-      "CIS-AWS_v1.3.0": [
-        "CIS-AWS_v1.3.0_3.7"
-      ],
-      "CIS-AWS_v1.4.0": [
-        "CIS-AWS_v1.4.0_3.7"
-      ]
-    },
-    "severity": "High"
-  },
-  "description": "CloudTrail log files should be encrypted with customer managed KMS keys. By default, the log files delivered by CloudTrail to your bucket are encrypted with Amazon S3-managed encryption keys (SSE-S3). To get control over key rotation and obtain auditing visibility into key usage, use SSE-KMS to encrypt your log files with customer managed KMS keys.",
-  "id": "FG_R00035",
-  "title": "CloudTrail log files should be encrypted with customer managed KMS keys"
+import data.vulnetix.fugue.tf
+
+metadata := {
+	"id": "FUGUE-TF-AWS-CT-02",
+	"name": "CloudTrail log files should be encrypted with customer managed KMS keys",
+	"description": "To get control over key rotation and obtain auditing visibility into key usage, use SSE-KMS to encrypt CloudTrail log files with customer managed KMS keys.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["terraform", "hcl"],
+	"severity": "high",
+	"level": "error",
+	"kind": "iac",
+	"cwe": ["CWE-311"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "aws", "cloudtrail", "encryption"],
 }
 
-# Is a cloudtrail encrypted using a KMS CMK?
-valid_kms_arn_prefix = {
-  "arn:aws:kms:",
-  "arn:aws-us-gov:kms:"
-}
-
-is_encrypted(ct) {
-  ct.kms_key_id != null
-  valid_kms_arn_prefix[k]
-  startswith(ct.kms_key_id, k)
-} {
-  fugue.input_type != "tf_runtime"
-  ct.kms_key_id != null
-  fugue.resources("aws_kms_key")[ct.kms_key_id]
-}
-
-cloudtrails = fugue.resources("aws_cloudtrail")
-
-resource_type := "MULTIPLE"
-
-policy[j] {
-  ct = cloudtrails[_]
-  is_encrypted(ct)
-  j = fugue.allow_resource(ct)
-} {
-  ct = cloudtrails[_]
-  not is_encrypted(ct)
-  j = fugue.deny_resource(ct)
+findings contains finding if {
+	some r in tf.resources("aws_cloudtrail")
+	not tf.has_key(r.block, "kms_key_id")
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("CloudTrail %q does not set kms_key_id for SSE-KMS encryption.", [r.name]),
+		"artifact_uri": r.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }

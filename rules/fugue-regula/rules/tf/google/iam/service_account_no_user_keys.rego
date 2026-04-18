@@ -1,55 +1,44 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-package rules.tf_google_iam_service_account_no_user_keys
+# Adapted from https://github.com/fugue/regula (FG_R00383).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-import data.fugue
-import data.google.iam.policy_library as lib
+package vulnetix.rules.fugue_tf_gcp_iam_service_account_no_user_keys
 
-__rego__metadoc__ := {
-  "custom": {
-    "controls": {
-      "CIS-Google_v1.1.0": [
-        "CIS-Google_v1.1.0_1.4"
-      ],
-      "CIS-Google_v1.2.0": [
-        "CIS-Google_v1.2.0_1.4"
-      ]
-    },
-    "severity": "Medium"
-  },
-  "description": "Service accounts should only have Google-managed service account keys. Google-managed service account keys are automatically managed and rotated by Google and cannot be downloaded. For user-managed service account keys, the user must take ownership of management activities including key storage, distribution, revocation, and rotation. And even with key owner precautions, user-managed keys can be easily leaked into source code or left on support blogs. Google-managed service account keys should therefore be used.",
-  "id": "FG_R00383",
-  "title": "Service accounts should only have Google-managed service account keys"
+import rego.v1
+
+import data.vulnetix.fugue.tf
+
+metadata := {
+	"id": "FUGUE-TF-GCP-IAM-04",
+	"name": "Service accounts should only have Google-managed service account keys",
+	"description": "Service accounts should only have Google-managed service account keys. Google-managed service account keys are automatically managed and rotated by Google and cannot be downloaded. For user-managed service account keys, the user must take ownership of management activities including key storage, distribution, revocation, and rotation. And even with key owner precautions, user-managed keys can be easily leaked into source code or left on support blogs. Google-managed service account keys should therefore be used.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["terraform", "hcl"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-522"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "gcp", "iam", "service-account", "credentials"],
 }
 
-resource_type := "MULTIPLE"
-
-service_account_key = fugue.resources("google_service_account_key")
-
-service_account_has_keys(account) {
-  key = service_account_key[_]
-  account.id == key.service_account_id
+findings contains finding if {
+	some sa in tf.resources("google_service_account")
+	_has_user_key(sa)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("google_service_account %q has a user-managed google_service_account_key.", [sa.name]),
+		"artifact_uri": sa.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [sa.type, sa.name]),
+	}
 }
 
-policy[j] {
-  sa = lib.user_managed_service_accounts[_]
-  not service_account_has_keys(sa)
-  j = fugue.allow_resource(sa)
-}
-
-policy[j] {
-  sa = lib.user_managed_service_accounts[_]
-  service_account_has_keys(sa)
-  j = fugue.deny_resource(sa)
+_has_user_key(sa) if {
+	some key in tf.resources("google_service_account_key")
+	tf.references(key.block, "google_service_account", sa.name)
 }

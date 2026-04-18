@@ -1,53 +1,67 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# Adapted from https://github.com/fugue/regula (FG_R00197).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-package rules.arm_vm_unattached_disk_encryption
+package vulnetix.rules.fugue_arm_vm_unattached_disk_encryption
 
-import data.fugue
-import data.arm.disk_encryption_library as lib
+import rego.v1
 
-__rego__metadoc__ := {
-  "custom": {
-    "controls": {
-      "CIS-Azure_v1.1.0": [
-        "CIS-Azure_v1.1.0_7.3"
-      ]
-    },
-    "severity": "High"
-  },
-  "description": "Encrypting the IaaS VM's disks ensures that its entire content is fully unrecoverable without a key and thus protects the volume from unwarranted reads.",
-  "id": "FG_R00197",
-  "title": "Virtual Machines unattached disks should be encrypted"
+import data.vulnetix.fugue.arm
+
+metadata := {
+	"id": "FUGUE-ARM-VM-02",
+	"name": "Virtual Machines unattached disks should be encrypted",
+	"description": "Encrypting the IaaS VM's disks ensures that its entire content is fully unrecoverable without a key and thus protects the volume from unwarranted reads.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["json"],
+	"severity": "high",
+	"level": "error",
+	"kind": "iac",
+	"cwe": ["CWE-311"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["arm", "azure", "vm", "encryption-at-rest"],
 }
 
-input_type := "arm"
-
-resource_type := "MULTIPLE"
-
-disks[id] = disk {
-	disk := lib.disks[id]
-	lib.unattached_disk_ids[id]
+_disk_encrypted(disk) if {
+	disk.properties.encryptionSettingsCollection.enabled == true
 }
 
-policy[p] {
-	disk = disks[_]
-	not lib.disk_encrypted(disk)
-	p = fugue.deny_resource(disk)
+_disk_encrypted(disk) if {
+	_ := disk.properties.encryption.diskEncryptionSetId
 }
 
-policy[p] {
-	disk = disks[_]
-	lib.disk_encrypted(disk)
-	p = fugue.allow_resource(disk)
+_disk_encrypted(disk) if {
+	disk.properties.encryption.type
+}
+
+# "Attached" heuristic: disk name appears as an os disk or data disk reference
+# in any VM's storageProfile.
+_is_attached(disk_name) if {
+	some vm in arm.resources("Microsoft.Compute/virtualMachines")
+	ref := object.get(object.get(vm.resource.properties.storageProfile.osDisk, "managedDisk", {}), "id", "")
+	contains(ref, disk_name)
+}
+
+_is_attached(disk_name) if {
+	some vm in arm.resources("Microsoft.Compute/virtualMachines")
+	some d in object.get(vm.resource.properties.storageProfile, "dataDisks", [])
+	ref := object.get(object.get(d, "managedDisk", {}), "id", "")
+	contains(ref, disk_name)
+}
+
+findings contains finding if {
+	some d in arm.resources("Microsoft.Compute/disks")
+	not _is_attached(d.resource.name)
+	not _disk_encrypted(d.resource)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("Unattached disk %q is not encrypted.", [d.resource.name]),
+		"artifact_uri": d.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s/%s", [d.resource.type, d.resource.name]),
+	}
 }

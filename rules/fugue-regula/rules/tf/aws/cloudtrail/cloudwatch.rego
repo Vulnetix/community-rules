@@ -1,58 +1,44 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-package rules.tf_aws_cloudtrail_cloudwatch
+# Adapted from https://github.com/fugue/regula (FG_R00029).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-import data.fugue
+package vulnetix.rules.fugue_tf_aws_ct_01
 
+import rego.v1
 
-__rego__metadoc__ := {
-  "custom": {
-    "controls": {
-      "CIS-AWS_v1.2.0": [
-        "CIS-AWS_v1.2.0_2.4"
-      ],
-      "CIS-AWS_v1.3.0": [
-        "CIS-AWS_v1.3.0_3.4"
-      ],
-      "CIS-AWS_v1.4.0": [
-        "CIS-AWS_v1.4.0_3.4"
-      ]
-    },
-    "severity": "Medium"
-  },
-  "description": "CloudTrail trails should have CloudWatch log integration enabled. It is recommended that users configure CloudTrail to send log events to CloudWatch Logs. Users can then create CloudWatch Logs metric filters to search for specific terms such as a user or resource, or create CloudWatch alarms to trigger based on thresholds or anomalous activity.\r\n\r\nNote: CIS recognizes that there are alternative logging solutions instead of CloudWatch Logs. The intent of this recommendation is to capture, monitor, and appropriately alarm on an AWS account.",
-  "id": "FG_R00029",
-  "title": "CloudTrail trails should have CloudWatch log integration enabled"
+import data.vulnetix.fugue.tf
+
+metadata := {
+	"id": "FUGUE-TF-AWS-CT-01",
+	"name": "CloudTrail trails should have CloudWatch log integration enabled",
+	"description": "CloudTrail trails should be configured to send log events to CloudWatch Logs so that users can create metric filters and alarms.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["terraform", "hcl"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-778"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "aws", "cloudtrail", "logging"],
 }
 
-cloudtrails = fugue.resources("aws_cloudtrail")
-
-has_log_integration(ct) {
-  ct.cloud_watch_logs_group_arn != ""
-  ct.cloud_watch_logs_group_arn != null
-  ct.cloud_watch_logs_role_arn != ""
-  ct.cloud_watch_logs_role_arn != null
+findings contains finding if {
+	some r in tf.resources("aws_cloudtrail")
+	not _has_integration(r.block)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("CloudTrail %q lacks CloudWatch log integration (cloud_watch_logs_group_arn and cloud_watch_logs_role_arn).", [r.name]),
+		"artifact_uri": r.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }
 
-resource_type := "MULTIPLE"
-
-policy[j] {
-  ct = cloudtrails[_]
-  has_log_integration(ct)
-  j = fugue.allow_resource(ct)
-} {
-  ct = cloudtrails[_]
-  not has_log_integration(ct)
-  j = fugue.deny_resource(ct)
+_has_integration(block) if {
+	tf.has_key(block, "cloud_watch_logs_group_arn")
+	tf.has_key(block, "cloud_watch_logs_role_arn")
 }

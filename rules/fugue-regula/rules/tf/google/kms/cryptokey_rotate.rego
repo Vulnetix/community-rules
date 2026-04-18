@@ -1,43 +1,47 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# Adapted from https://github.com/fugue/regula (FG_R00378).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-# KMS crypto keys should be rotated at least once every 365 days
-package rules.tf_google_kms_cryptokey_rotate
+package vulnetix.rules.fugue_tf_gcp_kms_cryptokey_rotate
 
-__rego__metadoc__ := {
-  "custom": {
-    "controls": {
-      "CIS-Google_v1.1.0": [
-        "CIS-Google_v1.1.0_1.10"
-      ]
-    },
-    "severity": "Medium"
-  },
-  "description": "KMS keys should be rotated frequently because rotation helps reduce the potential impact of a compromised key as users cannot use the old key to access the data.",
-  "id": "FG_R00378",
-  "title": "KMS keys should be rotated every 90 days or less"
+import rego.v1
+
+import data.vulnetix.fugue.tf
+
+metadata := {
+	"id": "FUGUE-TF-GCP-KMS-01",
+	"name": "KMS keys should be rotated every 90 days or less",
+	"description": "KMS keys should be rotated frequently because rotation helps reduce the potential impact of a compromised key as users cannot use the old key to access the data.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["terraform", "hcl"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-320"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "gcp", "kms", "rotation"],
 }
 
-resource_type := "google_kms_crypto_key"
+findings contains finding if {
+	some r in tf.resources("google_kms_crypto_key")
+	not _rotation_ok(r.block)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("google_kms_crypto_key %q has no rotation_period or a rotation_period > 90 days.", [r.name]),
+		"artifact_uri": r.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
+}
 
-default allow = false
-
-allow {
-  rotation_per = input.rotation_period
-  is_string(rotation_per)
-  trimmed_rotation_per = trim_right(rotation_per, "s")
-  num_rotation_per = to_number(trimmed_rotation_per)
-  # 90 days in seconds
-  num_rotation_per <= 7776000
+# 90 days in seconds = 7776000.
+_rotation_ok(block) if {
+	rp := tf.string_attr(block, "rotation_period")
+	trimmed := trim_right(rp, "s")
+	num := to_number(trimmed)
+	num <= 7776000
 }

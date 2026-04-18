@@ -1,41 +1,46 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-package rules.tf_google_sql_database_no_public_access
+# Adapted from https://github.com/fugue/regula (FG_R00434).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-import data.google.sql_database.sql_database_library as lib
+package vulnetix.rules.fugue_tf_gcp_sql_no_public_access
 
-__rego__metadoc__ := {
-  "custom": {
-    "controls": {
-      "CIS-Google_v1.1.0": [
-        "CIS-Google_v1.1.0_6.5"
-      ],
-      "CIS-Google_v1.2.0": [
-        "CIS-Google_v1.2.0_6.5"
-      ]
-    },
-    "severity": "High"
-  },
-  "description": "SQL database instances should not permit access from 0.0.0.0/0. SQL database instances permitting access from 0.0.0.0/0 are allowing access from anywhere in the world. To minimize its attack surface, a database server should only permit connections from trusted IP addresses.",
-  "id": "FG_R00434",
-  "title": "SQL database instances should not permit access from 0.0.0.0/0"
+import rego.v1
+
+import data.vulnetix.fugue.tf
+
+metadata := {
+	"id": "FUGUE-TF-GCP-SQL-03",
+	"name": "SQL database instances should not permit access from 0.0.0.0/0",
+	"description": "SQL database instances should not permit access from 0.0.0.0/0. SQL database instances permitting access from 0.0.0.0/0 are allowing access from anywhere in the world. To minimize its attack surface, a database server should only permit connections from trusted IP addresses.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["terraform", "hcl"],
+	"severity": "high",
+	"level": "error",
+	"kind": "iac",
+	"cwe": ["CWE-284"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "gcp", "sql", "public-access"],
 }
 
-resource_type := "google_sql_database_instance"
+findings contains finding if {
+	some r in tf.resources("google_sql_database_instance")
+	_has_public_authorized_network(r.block)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("google_sql_database_instance %q has an authorized_network with value 0.0.0.0/0.", [r.name]),
+		"artifact_uri": r.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
+}
 
-default deny = false
-
-deny {
-  input.settings[_].ip_configuration[_].authorized_networks[_].value == "0.0.0.0/0"
+_has_public_authorized_network(block) if {
+	some settings in tf.sub_blocks(block, "settings")
+	some ip in tf.sub_blocks(settings, "ip_configuration")
+	some an in tf.sub_blocks(ip, "authorized_networks")
+	tf.string_attr(an, "value") == "0.0.0.0/0"
 }

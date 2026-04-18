@@ -1,47 +1,62 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-package rules.tf_aws_security_groups_ingress_all
+# Adapted from https://github.com/fugue/regula (FG_R00045).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-import data.aws.security_groups.library
-import data.fugue
+package vulnetix.rules.fugue_tf_aws_sg_39
 
+import rego.v1
 
-__rego__metadoc__ := {
-  "custom": {
-    "severity": "High"
-  },
-  "description": "VPC security group inbound rules should not permit ingress from '0.0.0.0/0' to all ports and protocols. Security groups provide stateful filtering of ingress/egress network traffic to AWS resources. AWS recommends that no security group allows unrestricted ingress access from 0.0.0.0/0 to all ports. Removing unfettered connectivity to remote console services reduces a server's exposure to risk.",
-  "id": "FG_R00045",
-  "title": "VPC security group inbound rules should not permit ingress from '0.0.0.0/0' to all ports and protocols"
+import data.vulnetix.fugue.tf
+
+metadata := {
+	"id": "FUGUE-TF-AWS-SG-39",
+	"name": "VPC security group inbound rules should not permit ingress from 0.0.0.0/0 to all ports and protocols",
+	"description": "Security groups should not allow unrestricted ingress from 0.0.0.0/0 to all ports. Removing unfettered connectivity reduces a server's exposure to risk.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["terraform", "hcl"],
+	"severity": "high",
+	"level": "error",
+	"kind": "iac",
+	"cwe": ["CWE-284"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "aws", "security_group"],
 }
 
-security_groups = fugue.resources("aws_security_group")
-
-invalid_security_group(sg) {
-  ingress = sg.ingress[_]
-  library.rule_all_ports(ingress)
-  library.rule_zero_cidr(ingress)
+findings contains finding if {
+	some sg in tf.resources("aws_security_group")
+	some rule in tf.sub_blocks(sg.block, "ingress")
+	_rule_all_ports(rule)
+	_rule_zero_cidr(rule)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("aws_security_group %q allows ingress from 0.0.0.0/0 to all ports.", [sg.name]),
+		"artifact_uri": sg.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [sg.type, sg.name]),
+	}
 }
 
-resource_type := "MULTIPLE"
+_rule_all_ports(block) if {
+	from := tf.number_attr(block, "from_port")
+	to := tf.number_attr(block, "to_port")
+	from == 0
+	to >= 65535
+}
 
-policy[j] {
-  sg = security_groups[_]
-  invalid_security_group(sg)
-  j = fugue.deny_resource(sg)
-} {
-  sg = security_groups[_]
-  not invalid_security_group(sg)
-  j = fugue.allow_resource(sg)
+_rule_all_ports(block) if tf.string_attr(block, "protocol") == "-1"
+
+_rule_zero_cidr(block) if {
+	cidrs := tf.string_list_attr(block, "cidr_blocks")
+	some c in cidrs
+	c == "0.0.0.0/0"
+}
+
+_rule_zero_cidr(block) if {
+	cidrs := tf.string_list_attr(block, "ipv6_cidr_blocks")
+	some c in cidrs
+	c == "::/0"
 }

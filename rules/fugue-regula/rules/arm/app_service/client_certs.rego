@@ -1,44 +1,39 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# Adapted from https://github.com/fugue/regula (FG_R00348).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-package rules.arm_app_service_client_certs
+package vulnetix.rules.fugue_arm_app_service_client_certs
 
-import data.fugue
+import rego.v1
 
-__rego__metadoc__ := {
-  "custom": {
-    "controls": {
-      "CIS-Azure_v1.1.0": [
-        "CIS-Azure_v1.1.0_9.4"
-      ],
-      "CIS-Azure_v1.3.0": [
-        "CIS-Azure_v1.3.0_9.4"
-      ]
-    },
-    "severity": "Medium"
-  },
-  "description": "Client certificates allow for the app to request a certificate for incoming requests. Only clients that have a valid certificate will be able to reach the app.",
-  "id": "FG_R00348",
-  "title": "App Service web apps should have 'Incoming client certificates' enabled"
+import data.vulnetix.fugue.arm
+
+metadata := {
+	"id": "FUGUE-ARM-AS-02",
+	"name": "App Service web apps should have 'Incoming client certificates' enabled",
+	"description": "Client certificates allow for the app to request a certificate for incoming requests. Only clients that have a valid certificate will be able to reach the app.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["json"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-284"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["arm", "azure", "app-service", "client-cert"],
 }
 
-input_type := "arm"
-
-resource_type := "Microsoft.Web/sites"
-
-default allow = false
-
-allow {
-	input.properties.clientCertEnabled == true
+findings contains finding if {
+	some s in arm.resources("Microsoft.Web/sites")
+	not object.get(s.resource.properties, "clientCertEnabled", false) == true
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("App Service site %q does not have clientCertEnabled=true.", [s.resource.name]),
+		"artifact_uri": s.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s/%s", [s.resource.type, s.resource.name]),
+	}
 }

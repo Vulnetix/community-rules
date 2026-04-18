@@ -1,51 +1,43 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# Adapted from https://github.com/fugue/regula (FG_R00494).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-package rules.k8s_secrets_as_environment_variables
+package vulnetix.rules.fugue_k8s_secrets_as_environment_variables
 
-import data.fugue
-import data.k8s
+import rego.v1
 
-__rego__metadoc__ := {
-  "custom": {
-    "severity": "Medium"
-  },
-  "description": "Pods should not use secrets stored in environment variables. Providing access to secrets via volume mounts is preferred. Any secrets stored in environment variables could be exposed if the environment is logged or otherwise exposed by an application.",
-  "id": "FG_R00494",
-  "title": "Pods should not use secrets stored in environment variables"
+import data.vulnetix.fugue.k8s
+
+metadata := {
+	"id": "FUGUE-K8S-SEC-05",
+	"name": "Secrets should not be exposed as environment variables",
+	"description": "Prefer volume-mounted secrets over env var injection. Environment variables can leak via logging and process enumeration.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["yaml"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-522"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["kubernetes", "secrets", "hardening"],
 }
 
-input_type := "k8s"
-
-resource_type := "MULTIPLE"
-
-has_secret_key_ref(template) {
-	ref := template.spec.containers[_].env[_].valueFrom.secretKeyRef
-	ref.name
-	ref.key
-}
-
-policy[j] {
-	obj := k8s.resources_with_pod_templates[_]
-	count(obj.pod_template.spec.containers) > 0
-	not has_secret_key_ref(obj.pod_template)
-	j = fugue.allow_resource(obj.resource)
-}
-
-policy[j] {
-	obj := k8s.resources_with_pod_templates[_]
-	count(obj.pod_template.spec.containers) > 0
-	has_secret_key_ref(obj.pod_template)
-	j = fugue.deny_resource(obj.resource)
+findings contains finding if {
+	some obj in k8s.resources_with_pod_templates
+	containers := object.get(obj.pod_template.spec, "containers", [])
+	count(containers) > 0
+	some c in containers
+	some e in object.get(c, "env", [])
+	object.get(object.get(e, "valueFrom", {}), "secretKeyRef", {}).name
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("%s %q injects secrets via environment variables.", [obj.resource.kind, obj.resource.metadata.name]),
+		"artifact_uri": obj.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s/%s", [obj.resource.kind, obj.resource.metadata.name]),
+	}
 }

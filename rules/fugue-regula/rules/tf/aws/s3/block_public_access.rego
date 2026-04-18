@@ -1,79 +1,58 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-package rules.tf_aws_s3_block_public_access
+# Adapted from https://github.com/fugue/regula (FG_R00229).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
+# Simplified: flags aws_s3_bucket lacking a matching aws_s3_bucket_public_access_block or account-wide block with all four flags true.
 
-import data.fugue
-import data.aws.s3.s3_library as lib
+package vulnetix.rules.fugue_tf_aws_s3_01
 
+import rego.v1
 
-__rego__metadoc__ := {
-  "custom": {
-    "controls": {
-      "CIS-AWS_v1.3.0": [
-        "CIS-AWS_v1.3.0_1.20"
-      ],
-      "CIS-AWS_v1.4.0": [
-        "CIS-AWS_v1.4.0_2.1.5"
-      ]
-    },
-    "severity": "High"
-  },
-  "description": "S3 buckets should have all `block public access` options enabled. AWS's S3 Block Public Access feature has four settings: BlockPublicAcls, IgnorePublicAcls, BlockPublicPolicy, and RestrictPublicBuckets. All four settings should be enabled to help prevent the risk of a data breach.",
-  "id": "FG_R00229",
-  "title": "S3 buckets should have all `block public access` options enabled"
+import data.vulnetix.fugue.tf
+
+metadata := {
+	"id": "FUGUE-TF-AWS-S3-01",
+	"name": "S3 buckets should have all 'block public access' options enabled",
+	"description": "All four S3 Block Public Access settings (BlockPublicAcls, IgnorePublicAcls, BlockPublicPolicy, RestrictPublicBuckets) should be enabled.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["terraform", "hcl"],
+	"severity": "high",
+	"level": "error",
+	"kind": "iac",
+	"cwe": ["CWE-284"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "aws", "s3", "public"],
 }
 
-resource_type := "MULTIPLE"
-
-policy[j] {
-  b = buckets[bucket_id]
-  bucket_is_blocked(b)
-  j = fugue.allow_resource(b)
-} {
-  b = buckets[bucket_id]
-  not bucket_is_blocked(b)
-  j = fugue.deny_resource(b)
+findings contains finding if {
+	some b in tf.resources("aws_s3_bucket")
+	not _account_fully_blocked
+	not _bucket_fully_blocked(b.name)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("aws_s3_bucket %q has no matching aws_s3_bucket_public_access_block with all four options enabled.", [b.name]),
+		"artifact_uri": b.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [b.type, b.name]),
+	}
 }
 
-buckets = fugue.resources("aws_s3_bucket")
-bucket_access_blocks = fugue.resources("aws_s3_bucket_public_access_block")
-account_access_blocks = fugue.resources("aws_s3_account_public_access_block")
-
-# Using the `bucket_access_blocks`, we construct a set of bucket IDs that have
-# the public access blocked.
-blocked_buckets[bucket_name] {
-    block = bucket_access_blocks[_]
-    bucket_name = block.bucket
-    block.block_public_acls == true
-    block.ignore_public_acls == true
-    block.block_public_policy == true
-    block.restrict_public_buckets == true
+_account_fully_blocked if {
+	some a in tf.resources("aws_s3_account_public_access_block")
+	tf.bool_attr(a.block, "block_public_acls") == true
+	tf.bool_attr(a.block, "ignore_public_acls") == true
+	tf.bool_attr(a.block, "block_public_policy") == true
+	tf.bool_attr(a.block, "restrict_public_buckets") == true
 }
 
-blocked_account {
-    block := account_access_blocks[_]
-    block.block_public_acls == true
-    block.ignore_public_acls == true
-    block.block_public_policy == true
-    block.restrict_public_buckets == true
-}
-
-bucket_is_blocked(bucket) {
-  blocked_account
-} {
-  fugue.input_type != "tf_runtime"
-  blocked_buckets[bucket.id]
-} {
-  blocked_buckets[bucket.bucket]
+_bucket_fully_blocked(name) if {
+	some b in tf.resources("aws_s3_bucket_public_access_block")
+	tf.references(b.block, "aws_s3_bucket", name)
+	tf.bool_attr(b.block, "block_public_acls") == true
+	tf.bool_attr(b.block, "ignore_public_acls") == true
+	tf.bool_attr(b.block, "block_public_policy") == true
+	tf.bool_attr(b.block, "restrict_public_buckets") == true
 }

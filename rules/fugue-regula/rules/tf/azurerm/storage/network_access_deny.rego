@@ -1,72 +1,56 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-package rules.tf_azurerm_storage_network_access_deny
+# Adapted from https://github.com/fugue/regula (FG_R00154).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-import data.fugue
+package vulnetix.rules.fugue_tf_az_sa_network_access_deny
 
-__rego__metadoc__ := {
-  "custom": {
-    "controls": {
-      "CIS-Azure_v1.3.0": [
-        "CIS-Azure_v1.3.0_3.6"
-      ]
-    },
-    "severity": "High"
-  },
-  "description": "Storage Account default network access rules should deny all traffic. Storage accounts should be configured to deny access to traffic from all networks. Access can be granted to traffic from specific Azure Virtual networks, allowing a secure network boundary for specific applications to be built. Access can also be granted to public internet IP address ranges, to enable connections from specific internet or on-premises clients. When network rules are configured, only applications from allowed networks can access a storage account. When calling from an allowed network, applications continue to require proper authorization (a valid access key or SAS token) to access the storage account.",
-  "id": "FG_R00154",
-  "title": "Storage Account default network access rules should deny all traffic"
+import rego.v1
+
+import data.vulnetix.fugue.tf
+
+metadata := {
+	"id": "FUGUE-TF-AZ-SA-02",
+	"name": "Storage Account default network access rules should deny all traffic",
+	"description": "Storage Account default network access rules should deny all traffic. Storage accounts should be configured to deny access to traffic from all networks, granting access only to specific Azure Virtual networks or public IP ranges.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["terraform", "hcl"],
+	"severity": "high",
+	"level": "error",
+	"kind": "iac",
+	"cwe": ["CWE-284"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "azure", "storage", "network"],
 }
 
-resource_type := "MULTIPLE"
-
-storage_accounts = fugue.resources("azurerm_storage_account")
-network_rules = fugue.resources("azurerm_storage_account_network_rules")
-
-valid_network_rule(rule) {
-  lower(rule.default_action) == "deny"
+findings contains finding if {
+	some nr in tf.resources("azurerm_storage_account_network_rules")
+	not _default_action_deny(nr.block)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("Storage account network rules %q do not set default_action = \"Deny\".", [nr.name]),
+		"artifact_uri": nr.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [nr.type, nr.name]),
+	}
 }
 
-invalid_network_rule(rule) {
-  not valid_network_rule(rule)
+findings contains finding if {
+	some sa in tf.resources("azurerm_storage_account")
+	some nr in tf.sub_blocks(sa.block, "network_rules")
+	not _default_action_deny(nr)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("Storage account %q has inline network_rules with default_action != \"Deny\".", [sa.name]),
+		"artifact_uri": sa.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [sa.type, sa.name]),
+	}
 }
 
-invalid_storage_account(sa) {
-  rule := sa.network_rules[_]
-  invalid_network_rule(rule)
-}
-
-policy[j] {
-  rule = network_rules[_]
-  valid_network_rule(rule)
-  j = fugue.allow_resource(rule)
-}
-
-policy[j] {
-  rule = network_rules[_]
-  not valid_network_rule(rule)
-  j = fugue.deny_resource(rule)
-}
-
-policy[j] {
-  sa = storage_accounts[_]
-  not invalid_storage_account(sa)
-  j = fugue.allow_resource(sa)
-}
-
-policy[j] {
-  sa = storage_accounts[_]
-  invalid_storage_account(sa)
-  j = fugue.deny_resource(sa)
-}
+_default_action_deny(block) if lower(tf.string_attr(block, "default_action")) == "deny"

@@ -1,79 +1,54 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-package rules.tf_aws_s3_https_access
+# Adapted from https://github.com/fugue/regula (FG_R00100).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
+# Simplified: flags aws_s3_bucket missing a bucket_policy with Deny+aws:SecureTransport=false statement.
 
-import data.fugue
-import data.aws.s3.s3_library as lib
-import data.aws.iam.policy_document_library as doclib
+package vulnetix.rules.fugue_tf_aws_s3_10
 
-__rego__metadoc__ := {
-  "custom": {
-    "controls": {
-      "CIS-AWS_v1.3.0": [
-        "CIS-AWS_v1.3.0_2.1.2"
-      ],
-      "CIS-AWS_v1.4.0": [
-        "CIS-AWS_v1.4.0_2.1.2"
-      ]
-    },
-    "severity": "Medium"
-  },
-  "description": "S3 bucket policies should only allow requests that use HTTPS. To protect data in transit, an S3 bucket policy should deny all HTTP requests to its objects and allow only HTTPS requests. HTTPS uses Transport Layer Security (TLS) to encrypt data, which preserves integrity and prevents tampering.",
-  "id": "FG_R00100",
-  "title": "S3 bucket policies should only allow requests that use HTTPS"
+import rego.v1
+
+import data.vulnetix.fugue.tf
+
+metadata := {
+	"id": "FUGUE-TF-AWS-S3-10",
+	"name": "S3 bucket policies should only allow requests that use HTTPS",
+	"description": "Bucket policies should deny all HTTP requests and allow only HTTPS to protect data in transit.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["terraform", "hcl"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-319"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "aws", "s3", "tls"],
 }
 
-# This checks if this statement denies HTTPS requests.  In order for a statement
-# to match:
-#
-# - `Effect` needs to be set to `Deny`
-# - `Condition` needs to be set to `aws:SecureTransport == false`
-# - `Action` needs to set to `s3:GetObject` or `s3:*`, or `*`
-specifies_secure_transport(statement) {
-  secure_transport_values = as_array(statement.Condition.Bool["aws:SecureTransport"])
-  secure_transport_values == ["false"]
-  statement.Effect == "Deny"
-
-  actions = as_array(statement.Action)
-  related_actions = {"s3:GetObject", "s3:*", "*"}
-  related_actions[actions[_]]
+findings contains finding if {
+	some b in tf.resources("aws_s3_bucket")
+	not _has_https_deny(b.name)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("aws_s3_bucket %q has no bucket policy denying aws:SecureTransport=false.", [b.name]),
+		"artifact_uri": b.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [b.type, b.name]),
+	}
 }
 
-buckets = fugue.resources("aws_s3_bucket")
-
-# A valid policy specifies a `specifies_secure_transport` statement for the
-# "s3:GetObject" method.  See also:
-# <https://aws.amazon.com/blogs/security/how-to-use-bucket-policies-and-apply-defense-in-depth-to-help-secure-your-amazon-s3-data/>
-valid_buckets[bucket_id] = bucket {
-  bucket = buckets[bucket_id]
-  policies = lib.bucket_policies_for_bucket(bucket)
-  pol = policies[_]
-  doc = doclib.to_policy_document(pol)
-  statements = as_array(doc.Statement)
-  specifies_secure_transport(statements[_])
+_has_https_deny(name) if {
+	some p in tf.resources("aws_s3_bucket_policy")
+	tf.references(p.block, "aws_s3_bucket", name)
+	_secure_transport_deny(p.block)
 }
 
-resource_type := "MULTIPLE"
-
-policy[j] {
-  b = valid_buckets[_]
-  j = fugue.allow_resource(b)
-} {
-  b = buckets[id]
-  not valid_buckets[id]
-  j = fugue.deny_resource(b)
+_secure_transport_deny(block) if {
+	regex.match(`(?s)"Effect"\s*:\s*"Deny"[\s\S]*?"aws:SecureTransport"[\s\S]*?"false"`, block)
 }
 
-# Utility: turns anything into an array, if it's not an array already.
-as_array(x) = [x] {not is_array(x)} else = x {true}
+_secure_transport_deny(block) if {
+	regex.match(`(?s)"aws:SecureTransport"[\s\S]*?"false"[\s\S]*?"Effect"\s*:\s*"Deny"`, block)
+}

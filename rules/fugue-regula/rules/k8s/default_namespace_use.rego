@@ -1,84 +1,56 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# Adapted from https://github.com/fugue/regula (FG_R00497).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-package rules.k8s_default_namespace_use
+package vulnetix.rules.fugue_k8s_default_namespace_use
 
-import data.fugue
+import rego.v1
 
-__rego__metadoc__ := {
-  "custom": {
-    "severity": "Low"
-  },
-  "description": "The default namespace should not be used. Kubernetes cluster resources should be segregated by namespace to support security controls and resource management.",
-  "id": "FG_R00497",
-  "title": "The default namespace should not be used"
+import data.vulnetix.fugue.k8s
+
+metadata := {
+	"id": "FUGUE-K8S-NS-01",
+	"name": "Do not deploy into the default namespace",
+	"description": "Resources in the default namespace lack namespace-scoped isolation for RBAC, network policies and quotas.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["yaml"],
+	"severity": "low",
+	"level": "note",
+	"kind": "iac",
+	"cwe": ["CWE-266"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["kubernetes", "namespace", "hardening"],
 }
 
-input_type := "k8s"
-
-resource_type := "MULTIPLE"
-
-namespaced_kinds = {
-	"ConfigMap",
-	"CronJob",
-	"DaemonSet",
-	"Deployment",
-	"Ingress",
-	"Job",
-	"Pod",
-	"ReplicaSet",
-	"ReplicationController",
-	"Role",
-	"RoleBinding",
-	"Secret",
-	"Service",
-	"ServiceAccount",
-	"StatefulSet",
+findings contains finding if {
+	some d in k8s.namespaced_resources
+	_is_invalid(d.doc)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("%s %q is in the default namespace.", [d.doc.kind, d.doc.metadata.name]),
+		"artifact_uri": d.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s/%s", [d.doc.kind, d.doc.metadata.name]),
+	}
 }
 
-resources[id] = ret {
-	kind := namespaced_kinds[_]
-	kind_resources := fugue.resources(kind)
-	ret := kind_resources[id]
-}
-
-is_invalid(resource) {
-	resource.kind != "ServiceAccount"
-	resource.kind != "Service"
+_is_invalid(resource) if {
 	resource.metadata.namespace == "default"
+	not resource.kind in {"ServiceAccount", "Service"}
 }
 
-is_invalid(resource) {
+_is_invalid(resource) if {
 	resource.kind == "ServiceAccount"
+	resource.metadata.namespace == "default"
 	resource.metadata.name != "default"
-	resource.metadata.namespace == "default"
 }
 
-is_invalid(resource) {
+_is_invalid(resource) if {
 	resource.kind == "Service"
-	resource.metadata.name != "kubernetes"
 	resource.metadata.namespace == "default"
-}
-
-policy[j] {
-	resource := resources[_]
-	not is_invalid(resource)
-	j = fugue.allow_resource(resource)
-}
-
-policy[j] {
-	resource := resources[_]
-	is_invalid(resource)
-	j = fugue.deny_resource(resource)
+	resource.metadata.name != "kubernetes"
 }

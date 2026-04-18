@@ -1,47 +1,96 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-package rules.cfn_vpc_ingress_3389
+# Adapted from https://github.com/fugue/regula (FG_R00087).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-import data.fugue
-import data.cfn.security_group_library
+package vulnetix.rules.fugue_cfn_vpc_ingress_3389
 
-__rego__metadoc__ := {
-  "custom": {
-    "controls": {
-      "CIS-AWS_v1.2.0": [
-        "CIS-AWS_v1.2.0_4.2"
-      ],
-      "CIS-AWS_v1.3.0": [
-        "CIS-AWS_v1.3.0_5.2"
-      ]
-    },
-    "severity": "High"
-  },
-  "description": "VPC security group rules should not permit ingress from '0.0.0.0/0' to port 3389 (Remote Desktop Protocol). Removing unfettered connectivity to remote console services, such as Remote Desktop Protocol, reduces a server's exposure to risk.",
-  "id": "FG_R00087",
-  "title": "VPC security group rules should not permit ingress from '0.0.0.0/0' to port 3389 (Remote Desktop Protocol)"
+import rego.v1
+
+import data.vulnetix.fugue.cfn
+
+metadata := {
+	"id": "FUGUE-CFN-VPC-04",
+	"name": "VPC SGs should not permit 0.0.0.0/0 ingress to port 3389 (RDP)",
+	"description": "VPC security group rules should not permit ingress from '0.0.0.0/0' to port 3389 (Remote Desktop Protocol). Removing unfettered connectivity to remote console services reduces exposure to risk.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["yaml", "json"],
+	"severity": "high",
+	"level": "error",
+	"kind": "iac",
+	"cwe": ["CWE-284"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["cloudformation", "aws", "vpc", "security-group", "rdp"],
 }
 
-input_type := "cfn"
-resource_type := "MULTIPLE"
+_zero_cidr(rule) if {
+	rule.CidrIp == "0.0.0.0/0"
+}
 
-policy[p] {
-  rule = security_group_library.ingress_rules[_]
-  not security_group_library.rule_zero_cidr_includes_port(rule, 3389)
-  p = fugue.allow_resource(rule.resource)
-} {
-  rule = security_group_library.ingress_rules[_]
-  security_group_library.rule_zero_cidr_includes_port(rule, 3389)
-  p = fugue.deny_resource(rule.resource)
+_zero_cidr(rule) if {
+	rule.CidrIpv6 == "::/0"
+}
+
+_includes_port(rule, port) if {
+	to := rule.ToPort
+	from := rule.FromPort
+	is_number(to)
+	is_number(from)
+	from <= port
+	to >= port
+}
+
+_is_all_protocols(rule) if {
+	rule.IpProtocol == "-1"
+}
+
+_is_tcp_or_udp(rule) if {
+	rule.IpProtocol == "tcp"
+}
+
+_is_tcp_or_udp(rule) if {
+	rule.IpProtocol == "udp"
+}
+
+_rule_hits_port(rule, port) if {
+	_zero_cidr(rule)
+	_is_tcp_or_udp(rule)
+	_includes_port(rule, port)
+}
+
+_rule_hits_port(rule, _) if {
+	_zero_cidr(rule)
+	_is_all_protocols(rule)
+}
+
+findings contains finding if {
+	some r in cfn.resources("AWS::EC2::SecurityGroupIngress")
+	props := cfn.properties(r)
+	_rule_hits_port(props, 3389)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("SecurityGroupIngress %q permits 0.0.0.0/0 to port 3389 (RDP).", [r.logical_id]),
+		"artifact_uri": r.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("AWS::EC2::SecurityGroupIngress/%s", [r.logical_id]),
+	}
+}
+
+findings contains finding if {
+	some r in cfn.resources("AWS::EC2::SecurityGroup")
+	props := cfn.properties(r)
+	some rule in props.SecurityGroupIngress
+	_rule_hits_port(rule, 3389)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("SecurityGroup %q has an inline ingress rule permitting 0.0.0.0/0 to port 3389 (RDP).", [r.logical_id]),
+		"artifact_uri": r.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("AWS::EC2::SecurityGroup/%s", [r.logical_id]),
+	}
 }

@@ -1,39 +1,43 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# Adapted from https://github.com/fugue/regula (FG_R00468).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-package rules.arm_security_contact_notifications_enabled
+package vulnetix.rules.fugue_arm_security_contact_notifications_enabled
 
-__rego__metadoc__ := {
-  "custom": {
-    "controls": {
-      "CIS-Azure_v1.3.0": [
-        "CIS-Azure_v1.3.0_2.14"
-      ]
-    },
-    "severity": "Medium"
-  },
-  "description": "Security Center email notifications ensure that the appropriate individuals in an organization are notified when issues occur, speeding up time to remediation. If using the Azure CLI or API, notifications are sent for \"high\" or greater severity alerts. If using the Azure Portal, users have the additional option of configuring the severity level.",
-  "id": "FG_R00468",
-  "title": "Security Center 'Send email notification for high severity alerts' should be enabled"
+import rego.v1
+
+import data.vulnetix.fugue.arm
+
+metadata := {
+	"id": "FUGUE-ARM-SEC-01",
+	"name": "Security Center 'Send email notification for high severity alerts' should be enabled",
+	"description": "Security Center email notifications ensure that the appropriate individuals in an organization are notified when issues occur, speeding up time to remediation. If using the Azure CLI or API, notifications are sent for \"high\" or greater severity alerts. If using the Azure Portal, users have the additional option of configuring the severity level.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["json"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-778"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["arm", "azure", "security-center", "alerting"],
 }
 
-input_type := "arm"
+_ok(r) if {
+	lower(object.get(r.resource.properties, "alertNotifications", "")) == "on"
+}
 
-resource_type := "Microsoft.Security/securityContacts"
-
-default allow = false
-
-allow {
-	lower(input.properties.alertNotifications) == "on"
+findings contains finding if {
+	some r in arm.resources("Microsoft.Security/securityContacts")
+	not _ok(r)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("Security contact %q does not have alertNotifications=on.", [r.resource.name]),
+		"artifact_uri": r.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s/%s", [r.resource.type, r.resource.name]),
+	}
 }

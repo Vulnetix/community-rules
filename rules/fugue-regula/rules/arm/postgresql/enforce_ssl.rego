@@ -1,43 +1,43 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# Adapted from https://github.com/fugue/regula (FG_R00226).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-package rules.arm_postgresql_enforce_ssl
+package vulnetix.rules.fugue_arm_postgresql_enforce_ssl
 
-import data.fugue
+import rego.v1
 
-__rego__metadoc__ := {
-  "custom": {
-    "controls": {
-      "CIS-Azure_v1.1.0": [
-        "CIS-Azure_v1.1.0_4.13"
-      ],
-      "CIS-Azure_v1.3.0": [
-        "CIS-Azure_v1.3.0_4.3.1"
-      ]
-    },
-    "severity": "Medium"
-  },
-  "description": "Enforcing SSL connections between your database server and your client applications helps protect against \"man in the middle\" attacks by encrypting the data stream between the server and your application.",
-  "id": "FG_R00226",
-  "title": "PostgreSQL Database server 'enforce SSL connection' should be enabled"
+import data.vulnetix.fugue.arm
+
+metadata := {
+	"id": "FUGUE-ARM-PG-02",
+	"name": "PostgreSQL Database server 'enforce SSL connection' should be enabled",
+	"description": "Enforcing SSL connections between your database server and your client applications helps protect against \"man in the middle\" attacks by encrypting the data stream between the server and your application.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["json"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-319"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["arm", "azure", "postgresql", "tls"],
 }
 
-input_type := "arm"
+_ok(r) if {
+	lower(object.get(r.resource.properties, "sslEnforcement", "")) == "enabled"
+}
 
-resource_type := "Microsoft.DBforPostgreSQL/servers"
-
-default allow = false
-allow {
-	lower(input.properties.sslEnforcement) == "enabled"
+findings contains finding if {
+	some r in arm.resources("Microsoft.DBforPostgreSQL/servers")
+	not _ok(r)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("PostgreSQL server %q does not enforce SSL.", [r.resource.name]),
+		"artifact_uri": r.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s/%s", [r.resource.type, r.resource.name]),
+	}
 }

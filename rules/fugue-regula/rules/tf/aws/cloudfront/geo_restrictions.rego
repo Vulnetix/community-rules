@@ -1,47 +1,46 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-package rules.tf_aws_cloudfront_geo_restrictions
+# Adapted from https://github.com/fugue/regula (FG_R00018).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-import data.fugue
+package vulnetix.rules.fugue_tf_aws_cf_01
 
+import rego.v1
 
-__rego__metadoc__ := {
-  "custom": {
-    "severity": "Medium"
-  },
-  "description": "CloudFront distributions should have geo-restrictions specified. CloudFront distributions should enable geo-restriction when an organization needs to prevent users in specific geographic locations from accessing content. For example, if an organization has rights to distribute content in only one country, geo restriction should be enabled to allow access only from users in the whitelisted country. Or if the organization cannot distribute content in a particular country, geo restriction should deny access from users in the blacklisted country.",
-  "id": "FG_R00018",
-  "title": "CloudFront distributions should have geo-restrictions specified"
+import data.vulnetix.fugue.tf
+
+metadata := {
+	"id": "FUGUE-TF-AWS-CF-01",
+	"name": "CloudFront distributions should have geo-restrictions specified",
+	"description": "CloudFront distributions should have geo-restrictions specified (whitelist or blacklist) when an organization needs to prevent users in specific geographic locations from accessing content.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["terraform", "hcl"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-284"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "aws", "cloudfront", "geo"],
 }
 
-cloudfront_distributions = fugue.resources("aws_cloudfront_distribution")
-
-valid_restriction_types = {"whitelist", "blacklist"}
-
-valid_cloudfront_distribution(cd) {
-  restriction_type = cd.restrictions[_].geo_restriction[_].restriction_type
-  valid_restriction_types[restriction_type]
+findings contains finding if {
+	some r in tf.resources("aws_cloudfront_distribution")
+	not _has_geo_restriction(r.block)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("CloudFront distribution %q lacks geo_restriction with a whitelist or blacklist.", [r.name]),
+		"artifact_uri": r.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }
 
-resource_type := "MULTIPLE"
-
-policy[j] {
-  cd = cloudfront_distributions[_]
-  valid_cloudfront_distribution(cd)
-  j = fugue.allow_resource(cd)
-} {
-  cd = cloudfront_distributions[_]
-  not valid_cloudfront_distribution(cd)
-  j = fugue.deny_resource(cd)
+_has_geo_restriction(block) if {
+	some restriction in tf.sub_blocks(block, "restrictions")
+	some geo in tf.sub_blocks(restriction, "geo_restriction")
+	rt := tf.string_attr(geo, "restriction_type")
+	rt in {"whitelist", "blacklist"}
 }

@@ -1,34 +1,40 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# Adapted from https://github.com/fugue/regula (FG_R00221).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-package rules.arm_sql_no_inbound_all
+package vulnetix.rules.fugue_arm_sql_no_inbound_all
 
-__rego__metadoc__ := {
-  "custom": {
-    "severity": "High"
-  },
-  "description": "Adding a rule with range 0.0.0.0 to 0.0.0.0 is the same as enabling the \"Allow access to Azure services\" setting, which allows all connections from Azure, including from other subscriptions. Disabling this setting helps prevent malicious Azure users from connecting to your database and accessing sensitive data.",
-  "id": "FG_R00221",
-  "title": "SQL Server firewall rules should not permit start and end IP addresses to be 0.0.0.0"
+import rego.v1
+
+import data.vulnetix.fugue.arm
+
+metadata := {
+	"id": "FUGUE-ARM-SQL-03",
+	"name": "SQL Server firewall rules should not permit start and end IP addresses to be 0.0.0.0",
+	"description": "Adding a rule with range 0.0.0.0 to 0.0.0.0 is the same as enabling the \"Allow access to Azure services\" setting, which allows all connections from Azure, including from other subscriptions. Disabling this setting helps prevent malicious Azure users from connecting to your database and accessing sensitive data.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["json"],
+	"severity": "high",
+	"level": "error",
+	"kind": "iac",
+	"cwe": ["CWE-284"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["arm", "azure", "sql", "firewall"],
 }
 
-input_type := "arm"
-
-resource_type := "Microsoft.Sql/servers/firewallRules"
-
-default deny = false
-deny {
-	input.properties.startIpAddress == "0.0.0.0"
-	input.properties.endIpAddress == "0.0.0.0"
+findings contains finding if {
+	some r in arm.resources("Microsoft.Sql/servers/firewallRules")
+	r.resource.properties.startIpAddress == "0.0.0.0"
+	r.resource.properties.endIpAddress == "0.0.0.0"
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("SQL Server firewall rule %q allows all Azure services (0.0.0.0-0.0.0.0).", [r.resource.name]),
+		"artifact_uri": r.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s/%s", [r.resource.type, r.resource.name]),
+	}
 }

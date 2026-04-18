@@ -1,54 +1,73 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-package rules.tf_google_compute_firewall_port_22
+# Adapted from https://github.com/fugue/regula (FG_R00407).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-import data.google.compute.firewall_library as lib
-import data.fugue
+package vulnetix.rules.fugue_tf_gcp_gce_firewall_port_22
 
-__rego__metadoc__ := {
-  "custom": {
-    "controls": {
-      "CIS-Google_v1.1.0": [
-        "CIS-Google_v1.1.0_3.6"
-      ],
-      "CIS-Google_v1.2.0": [
-        "CIS-Google_v1.2.0_3.6"
-      ]
-    },
-    "severity": "High"
-  },
-  "description": "Network firewall rules should not permit ingress from 0.0.0.0/0 to port 22 (SSH). If SSH is open to the internet, attackers can attempt to gain access to VM instances. Removing unfettered connectivity to remote console services, such as SSH, reduces a server's exposure to risk.",
-  "id": "FG_R00407",
-  "title": "Network firewall rules should not permit ingress from 0.0.0.0/0 to port 22 (SSH)"
+import rego.v1
+
+import data.vulnetix.fugue.tf
+
+metadata := {
+	"id": "FUGUE-TF-GCP-GCE-05",
+	"name": "Network firewall rules should not permit ingress from 0.0.0.0/0 to port 22 (SSH)",
+	"description": "Network firewall rules should not permit ingress from 0.0.0.0/0 to port 22 (SSH). If SSH is open to the internet, attackers can attempt to gain access to VM instances. Removing unfettered connectivity to remote console services, such as SSH, reduces a server's exposure to risk.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["terraform", "hcl"],
+	"severity": "high",
+	"level": "error",
+	"kind": "iac",
+	"cwe": ["CWE-284"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "gcp", "compute", "firewall", "ssh"],
 }
 
-firewalls = fugue.resources("google_compute_firewall")
+findings contains finding if {
+	some r in tf.resources("google_compute_firewall")
+	_allows_world_on_port(r.block, "22")
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("google_compute_firewall %q permits ingress from 0.0.0.0/0 to port 22.", [r.name]),
+		"artifact_uri": r.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
+}
 
-resource_type := "MULTIPLE"
+_allows_world_on_port(block, port) if {
+	not regex.match(`(?m)^\s*direction\s*=\s*"EGRESS"`, block)
+	some cidrs in tf.string_list_attr(block, "source_ranges")
+	cidrs == "0.0.0.0/0"
+	some allow in tf.sub_blocks(block, "allow")
+	_port_matches(allow, port)
+}
 
-port = "22"
+_port_matches(allow, port) if {
+	proto := tf.string_attr(allow, "protocol")
+	proto != "icmp"
+	ports := tf.string_list_attr(allow, "ports")
+	count(ports) == 0
+}
 
-policy[j] {
-  firewall = firewalls[_]
-  network = lib.network_for_firewall(firewall)
-  lib.is_network_vulnerable(network, port)
-  j = fugue.allow_resource(firewall)
-} {
-  firewall = firewalls[_]
-  network = lib.network_for_firewall(firewall)
-  not lib.is_network_vulnerable(network, port)
-  p = lib.lowest_allow_ingress_zero_cidr_by_port(network, port)
-  f = lib.firewalls_by_priority_and_port(network, p, port)[_]
-  j = fugue.deny_resource(f)
+_port_matches(allow, port) if {
+	proto := tf.string_attr(allow, "protocol")
+	proto != "icmp"
+	some p in tf.string_list_attr(allow, "ports")
+	_port_in_range(p, port)
+}
+
+_port_in_range(spec, port) if spec == port
+
+_port_in_range(spec, port) if {
+	parts := split(spec, "-")
+	count(parts) == 2
+	lo := to_number(parts[0])
+	hi := to_number(parts[1])
+	pn := to_number(port)
+	pn >= lo
+	pn <= hi
 }

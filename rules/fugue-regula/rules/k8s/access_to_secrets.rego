@@ -1,59 +1,49 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# Adapted from https://github.com/fugue/regula (FG_R00480).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-package rules.k8s_access_to_secrets
+package vulnetix.rules.fugue_k8s_access_to_secrets
 
-import data.fugue
-import data.k8s
+import rego.v1
 
-__rego__metadoc__ := {
-  "custom": {
-    "severity": "Medium"
-  },
-  "description": "Roles and cluster roles should not grant 'get', 'list', or 'watch' permissions for secrets. RBAC resources in Kubernetes are used to grant access to get, list, and watch secrets on the Kubernetes API. Restrict use of these permissions to the smallest set of users and service accounts as possible.",
-  "id": "FG_R00480",
-  "title": "Roles and cluster roles should not grant 'get', 'list', or 'watch' permissions for secrets"
+import data.vulnetix.fugue.k8s
+
+metadata := {
+	"id": "FUGUE-K8S-RBAC-02",
+	"name": "Roles should not grant get/list/watch on secrets",
+	"description": "RBAC grants of get/list/watch on 'secrets' expose credentials stored as Kubernetes Secrets.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["yaml"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-522"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["kubernetes", "rbac", "secrets"],
 }
 
-input_type := "k8s"
+_match_verbs := {"get", "list", "watch"}
 
-resource_type := "MULTIPLE"
-
-match_verbs = {"get", "list", "watch"}
-
-is_invalid_rule(rule) {
-	rule.resources[_] == "secrets"
-	match_verbs[rule.verbs[_]]
-}
-
-is_invalid_role(role) {
-	is_invalid_rule(role.rules[_])
-}
-
-is_invalid_binding(binding) {
+findings contains finding if {
+	some binding in k8s.role_bindings
 	role := k8s.role_from_binding(binding)
-	is_invalid_role(role)
+	_is_invalid_role(role)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("%s %q binds a role that grants get/list/watch on secrets.", [binding.doc.kind, binding.doc.metadata.name]),
+		"artifact_uri": binding.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s/%s", [binding.doc.kind, binding.doc.metadata.name]),
+	}
 }
 
-policy[j] {
-	resource := k8s.role_bindings[_]
-	not is_invalid_binding(resource)
-	j = fugue.allow_resource(resource)
-}
-
-policy[j] {
-	resource := k8s.role_bindings[_]
-	is_invalid_binding(resource)
-	j = fugue.deny_resource(resource)
+_is_invalid_role(role) if {
+	some r in role.rules
+	"secrets" in r.resources
+	some v in r.verbs
+	v in _match_verbs
 }

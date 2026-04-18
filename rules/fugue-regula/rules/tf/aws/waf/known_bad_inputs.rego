@@ -1,63 +1,48 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-package rules.tf_aws_waf_known_bad_inputs
+# Adapted from https://github.com/fugue/regula (FG_R00500).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
+# Simplified: text-scans aws_wafv2_web_acl for managed_rule_group_statement referencing AWSManagedRulesKnownBadInputsRuleSet.
 
-import data.fugue
+package vulnetix.rules.fugue_tf_aws_waf_01
 
-__rego__metadoc__ := {
-  "custom": {
-    "severity": "Critical"
-  },
-  "description": "WAFv2 web ACLs should include the 'AWSManagedRulesKnownBadInputsRuleSet' managed rule group. The 'Known bad inputs' (AWSManagedRulesKnownBadInputsRuleSet) managed rule group contains rules that block request patterns that are invalid or known to be associated with vulnerabilities, such as Log4j. Please note that the 'Log4JRCE' WAFv2 rule (and many others) only inspects the first 8 KB of the request body, so you may additionally want to ensure that the 'Core rule set' (AWSManagedRulesCommonRuleSet) is also included, as the 'SizeRestrictions_BODY' rule in that managed rule group verifies that the request body size is at most 8 KB.",
-  "id": "FG_R00500",
-  "title": "WAFv2 web ACLs should include the 'AWSManagedRulesKnownBadInputsRuleSet' managed rule group"
+import rego.v1
+
+import data.vulnetix.fugue.tf
+
+metadata := {
+	"id": "FUGUE-TF-AWS-WAF-01",
+	"name": "WAFv2 web ACLs should include the AWSManagedRulesKnownBadInputsRuleSet managed rule group",
+	"description": "The 'Known bad inputs' managed rule group blocks request patterns that are invalid or known to be associated with vulnerabilities such as Log4j.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["terraform", "hcl"],
+	"severity": "critical",
+	"level": "error",
+	"kind": "iac",
+	"cwe": ["CWE-693"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "aws", "waf"],
 }
 
-wafsv2 = fugue.resources("aws_wafv2_web_acl")
-
-resource_type := "MULTIPLE"
-
-valid_rule_names = {"AWSManagedRulesKnownBadInputsRuleSet"}
-valid_vendor_names = {"AWS"}
-invalid_exclusions = {"Log4JRCE", "Log4JRCE_ALL_HEADER"}
-
-is_valid_waf(waf) {
-  rule = waf.rule[_]
-  not rule_overridden(rule)
-
-  managed_statement = waf.rule[_].statement[_].managed_rule_group_statement[_]
-  valid_vendor_names[managed_statement.vendor_name]
-  valid_rule_names[managed_statement.name]
-  not excludes_log4jrce(managed_statement)
+findings contains finding if {
+	some w in tf.resources("aws_wafv2_web_acl")
+	not _has_known_bad_inputs(w.block)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("aws_wafv2_web_acl %q does not include the AWSManagedRulesKnownBadInputsRuleSet managed rule group.", [w.name]),
+		"artifact_uri": w.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [w.type, w.name]),
+	}
 }
 
-rule_overridden(rule) {
-  count(rule.override_action[_].count) == 1
+_has_known_bad_inputs(block) if {
+	regex.match(`(?s)managed_rule_group_statement[\s\S]*?name\s*=\s*"AWSManagedRulesKnownBadInputsRuleSet"[\s\S]*?vendor_name\s*=\s*"AWS"`, block)
 }
 
-excludes_log4jrce(managed_statement) {
-  invalid_exclusions[managed_statement.excluded_rule[_].name]
-}
-
-policy[j] {
-  waf = wafsv2[_]
-  is_valid_waf(waf)
-  j = fugue.allow_resource(waf)
-}
-
-policy[j] {
-  waf = wafsv2[_]
-  not is_valid_waf(waf)
-  j = fugue.deny_resource(waf)
+_has_known_bad_inputs(block) if {
+	regex.match(`(?s)managed_rule_group_statement[\s\S]*?vendor_name\s*=\s*"AWS"[\s\S]*?name\s*=\s*"AWSManagedRulesKnownBadInputsRuleSet"`, block)
 }

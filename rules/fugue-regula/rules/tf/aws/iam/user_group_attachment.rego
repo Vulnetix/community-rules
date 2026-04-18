@@ -1,46 +1,55 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-package rules.tf_aws_iam_user_group_attachment
+# Adapted from https://github.com/fugue/regula (FG_R00272).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-import data.fugue
+package vulnetix.rules.fugue_tf_aws_iam_16
 
-__rego__metadoc__ := {
-  "custom": {
-    "severity": "Low"
-  },
-  "description": "IAM users should be members of at least one group. It is an IAM best practice for permissions to be managed at the group level, and therefore, for policies to be attached to groups - not users. Ensuring that a user belongs to at least one group helps prevent the user's permissions from being managed separately.",
-  "id": "FG_R00272",
-  "title": "IAM users should be members of at least one group"
+import rego.v1
+
+import data.vulnetix.fugue.tf
+
+metadata := {
+	"id": "FUGUE-TF-AWS-IAM-16",
+	"name": "IAM users should be members of at least one group",
+	"description": "Permissions should be managed at the group level; users not assigned to any group may have permissions managed separately.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["terraform", "hcl"],
+	"severity": "low",
+	"level": "note",
+	"kind": "iac",
+	"cwe": ["CWE-269"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "aws", "iam"],
 }
 
-users = fugue.resources("aws_iam_user")
-groups = fugue.resources("aws_iam_group_membership")
-
-# Validate whether the user is attached to at least one group
-
-group_attached(user) {
-  groups[_].users[_] == user.name
+findings contains finding if {
+	some u in tf.resources("aws_iam_user")
+	not _user_in_group(u.name)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("IAM user %q is not a member of any aws_iam_group_membership.", [u.name]),
+		"artifact_uri": u.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [u.type, u.name]),
+	}
 }
 
-resource_type := "MULTIPLE"
+_user_in_group(user_name) if {
+	some gm in tf.resources("aws_iam_group_membership")
+	tf.references(gm.block, "aws_iam_user", user_name)
+}
 
-policy[j] {
-  user = users[_]
-  group_attached(user)
-  j = fugue.allow_resource(user)
-} {
-  user = users[_]
-  not group_attached(user)
-  j = fugue.deny_resource(user)
+_user_in_group(user_name) if {
+	some gm in tf.resources("aws_iam_group_membership")
+	some u in tf.string_list_attr(gm.block, "users")
+	u == user_name
+}
+
+_user_in_group(user_name) if {
+	some gum in tf.resources("aws_iam_user_group_membership")
+	tf.references(gum.block, "aws_iam_user", user_name)
 }

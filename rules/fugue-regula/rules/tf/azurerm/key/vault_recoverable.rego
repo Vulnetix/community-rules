@@ -1,40 +1,44 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-package rules.tf_azurerm_key_vault_recoverable
+# Adapted from https://github.com/fugue/regula (FG_R00227).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-__rego__metadoc__ := {
-  "custom": {
-    "controls": {
-      "CIS-Azure_v1.1.0": [
-        "CIS-Azure_v1.1.0_8.4"
-      ],
-      "CIS-Azure_v1.3.0": [
-        "CIS-Azure_v1.3.0_8.4"
-      ]
-    },
-    "severity": "Medium"
-  },
-  "description": "Key Vault 'Enable Soft Delete' and 'Enable Purge Protection' should be enabled. Enabling soft deletion ensures that even if the key vault is deleted, the key vault and its objects remain recoverable for next 90 days. In this span of 90 days, the key vault and its objects can be recovered or purged (permanent deletion). Enabling purge protection ensures that the key vault and its objects cannot be purged during the 90 day retention period.",
-  "id": "FG_R00227",
-  "title": "Key Vault 'Enable Soft Delete' and 'Enable Purge Protection' should be enabled"
+package vulnetix.rules.fugue_tf_az_kv_recoverable
+
+import rego.v1
+
+import data.vulnetix.fugue.tf
+
+metadata := {
+	"id": "FUGUE-TF-AZ-KV-01",
+	"name": "Key Vault 'Enable Soft Delete' and 'Enable Purge Protection' should be enabled",
+	"description": "Key Vault 'Enable Soft Delete' and 'Enable Purge Protection' should be enabled. Enabling soft deletion ensures that even if the key vault is deleted, the key vault and its objects remain recoverable for next 90 days. In this span of 90 days, the key vault and its objects can be recovered or purged (permanent deletion). Enabling purge protection ensures that the key vault and its objects cannot be purged during the 90 day retention period.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["terraform", "hcl"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-212"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "azure", "key-vault", "recovery"],
 }
 
-resource_type := "azurerm_key_vault"
+findings contains finding if {
+	some r in tf.resources("azurerm_key_vault")
+	not _recoverable(r.block)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("Key Vault %q does not enable purge protection and soft delete.", [r.name]),
+		"artifact_uri": r.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
+}
 
-default allow = false
-
-allow {
-  input.purge_protection_enabled == true
-  input.soft_delete_enabled == true
+_recoverable(block) if {
+	tf.bool_attr(block, "purge_protection_enabled") == true
+	tf.bool_attr(block, "soft_delete_enabled") == true
 }

@@ -1,40 +1,45 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-package rules.tf_aws_cloudwatch_alarm_actions
+# Adapted from https://github.com/fugue/regula (FG_R00240).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-import data.fugue.utils
+package vulnetix.rules.fugue_tf_aws_cw_01
 
-__rego__metadoc__ := {
-  "custom": {
-    "severity": "Medium"
-  },
-  "description": "CloudWatch alarms should have at least one alarm action, one INSUFFICIENT_DATA action, or one OK action enabled. AWS can invoke an action when a metric alarm changes state. For example, you can configure CloudWatch to send an SNS notification when an EC2 instance's CPU usage exceeds a certain threshold, alerting you to potentially anomalous activity.",
-  "id": "FG_R00240",
-  "title": "CloudWatch alarms should have at least one alarm action, one INSUFFICIENT_DATA action, or one OK action enabled"
+import rego.v1
+
+import data.vulnetix.fugue.tf
+
+metadata := {
+	"id": "FUGUE-TF-AWS-CW-01",
+	"name": "CloudWatch alarms should have at least one action configured",
+	"description": "CloudWatch alarms should have at least one alarm action, one INSUFFICIENT_DATA action, or one OK action enabled so state changes can invoke notifications.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["terraform", "hcl"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-778"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "aws", "cloudwatch", "alarm"],
 }
 
-resource_type := "aws_cloudwatch_metric_alarm"
-
-default allow = false
-
-allow {
-  input.insufficient_data_actions != null
-  count(utils.as_array(input.insufficient_data_actions)) > 0
-} {
-  input.alarm_actions != null
-  count(utils.as_array(input.alarm_actions)) > 0
-} {
-  input.ok_actions != null
-  count(utils.as_array(input.ok_actions)) > 0
+findings contains finding if {
+	some r in tf.resources("aws_cloudwatch_metric_alarm")
+	not _has_any_action(r.block)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("CloudWatch alarm %q has no alarm_actions, ok_actions, or insufficient_data_actions.", [r.name]),
+		"artifact_uri": r.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }
+
+_has_any_action(block) if tf.has_key(block, "alarm_actions")
+
+_has_any_action(block) if tf.has_key(block, "ok_actions")
+
+_has_any_action(block) if tf.has_key(block, "insufficient_data_actions")

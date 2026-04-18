@@ -1,34 +1,39 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-package rules.tf_aws_cloudwatch_encrypted_logs
+# Adapted from https://github.com/fugue/regula (FG_R00068).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-import data.fugue
+package vulnetix.rules.fugue_tf_aws_cw_02
 
-__rego__metadoc__ := {
-  "custom": {
-    "severity": "Medium"
-  },
-  "description": "CloudWatch log groups should be encrypted with customer managed KMS keys. CloudWatch log groups are encrypted by default. However, utilizing customer managed KMS keys gives you more control over key rotation and provides auditing visibility into key usage.",
-  "id": "FG_R00068",
-  "title": "CloudWatch log groups should be encrypted with customer managed KMS keys"
+import rego.v1
+
+import data.vulnetix.fugue.tf
+
+metadata := {
+	"id": "FUGUE-TF-AWS-CW-02",
+	"name": "CloudWatch log groups should be encrypted with customer managed KMS keys",
+	"description": "CloudWatch log groups should be encrypted with customer managed KMS keys to give users control over key rotation and auditing visibility.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["terraform", "hcl"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-311"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "aws", "cloudwatch", "encryption"],
 }
 
-resource_type := "aws_cloudwatch_log_group"
-
-default allow = false
-
-allow {
-  is_string(input.kms_key_id)
-  input.kms_key_id != ""
+findings contains finding if {
+	some r in tf.resources("aws_cloudwatch_log_group")
+	not tf.has_key(r.block, "kms_key_id")
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("CloudWatch log group %q has no kms_key_id.", [r.name]),
+		"artifact_uri": r.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }

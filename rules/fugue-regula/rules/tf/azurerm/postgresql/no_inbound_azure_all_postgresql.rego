@@ -1,51 +1,40 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-package rules.tf_azurerm_postgresql_no_inbound_azure_all_postgresql
+# Adapted from https://github.com/fugue/regula (FG_R00223).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-import data.fugue
+package vulnetix.rules.fugue_tf_az_pg_no_inbound_azure
 
+import rego.v1
 
-__rego__metadoc__ := {
-  "custom": {
-    "controls": {
-      "CIS-Azure_v1.3.0": [
-        "CIS-Azure_v1.3.0_4.3.8"
-      ]
-    },
-    "severity": "High"
-  },
-  "description": "PostgreSQL Database server firewall rules should not permit start and end IP addresses to be 0.0.0.0. Adding a rule with range 0.0.0.0 to 0.0.0.0 is the same as enabling the \"Allow access to Azure services\" setting, which allows all connections from Azure, including from other subscriptions. Disabling this setting helps prevent malicious Azure users from connecting to your database and accessing sensitive data.",
-  "id": "FG_R00223",
-  "title": "PostgreSQL Database server firewall rules should not permit start and end IP addresses to be 0.0.0.0"
+import data.vulnetix.fugue.tf
+
+metadata := {
+	"id": "FUGUE-TF-AZ-PG-08",
+	"name": "PostgreSQL Database firewall rules should not permit start/end IP = 0.0.0.0",
+	"description": "PostgreSQL Database server firewall rules should not permit start and end IP addresses to be 0.0.0.0. Adding a rule with range 0.0.0.0 to 0.0.0.0 is the same as enabling the 'Allow access to Azure services' setting, which allows all connections from Azure, including from other subscriptions.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["terraform", "hcl"],
+	"severity": "high",
+	"level": "error",
+	"kind": "iac",
+	"cwe": ["CWE-284"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "azure", "postgresql", "firewall"],
 }
 
-firewall_rules = fugue.resources("azurerm_postgresql_firewall_rule")
-
-# An invalid address has start IP set to `0.0.0.0` and end IP set to `0.0.0.0`
-invalid_address(firewall_rule) {
-  firewall_rule.start_ip_address == "0.0.0.0"
-  firewall_rule.end_ip_address == "0.0.0.0"
-}
-
-resource_type := "MULTIPLE"
-
-policy[j] {
-  firewall_rule = firewall_rules[_]
-  invalid_address(firewall_rule)
-  j = fugue.deny_resource(firewall_rule)
-} {
-  firewall_rule = firewall_rules[_]
-  not invalid_address(firewall_rule)
-  j = fugue.allow_resource(firewall_rule)
+findings contains finding if {
+	some r in tf.resources("azurerm_postgresql_firewall_rule")
+	tf.string_attr(r.block, "start_ip_address") == "0.0.0.0"
+	tf.string_attr(r.block, "end_ip_address") == "0.0.0.0"
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("PostgreSQL firewall rule %q permits all Azure services (start/end IP = 0.0.0.0).", [r.name]),
+		"artifact_uri": r.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }

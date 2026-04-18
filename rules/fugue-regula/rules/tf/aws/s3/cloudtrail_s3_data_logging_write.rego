@@ -1,80 +1,63 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-package rules.tf_aws_s3_cloudtrail_s3_data_logging_write
+# Adapted from https://github.com/fugue/regula (FG_R00354).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
+# Simplified: flags aws_s3_bucket with no aws_cloudtrail event_selector logging S3 Object writes.
 
-import data.fugue
+package vulnetix.rules.fugue_tf_aws_s3_08
 
-# https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/cloudtrail
-# https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket
+import rego.v1
 
+import data.vulnetix.fugue.tf
 
-__rego__metadoc__ := {
-  "custom": {
-    "controls": {
-      "CIS-AWS_v1.3.0": [
-        "CIS-AWS_v1.3.0_3.10"
-      ],
-      "CIS-AWS_v1.4.0": [
-        "CIS-AWS_v1.4.0_3.10"
-      ]
-    },
-    "severity": "Low"
-  },
-  "description": "S3 bucket object-level logging for write events should be enabled. Object-level S3 events (GetObject, DeleteObject, and PutObject) are not logged by default, though this is recommended from a security best practices perspective for buckets that contain sensitive data.",
-  "id": "FG_R00354",
-  "title": "S3 bucket object-level logging for write events should be enabled"
+metadata := {
+	"id": "FUGUE-TF-AWS-S3-08",
+	"name": "S3 bucket object-level logging for write events should be enabled",
+	"description": "Object-level S3 write events (PutObject, DeleteObject) are not logged by default; enable CloudTrail data events for sensitive buckets.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["terraform", "hcl"],
+	"severity": "low",
+	"level": "note",
+	"kind": "iac",
+	"cwe": ["CWE-778"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "aws", "s3", "cloudtrail"],
 }
 
-resource_type := "MULTIPLE"
-
-trails = fugue.resources("aws_cloudtrail")
-buckets = fugue.resources("aws_s3_bucket")
-
-valid_selector_types = {
-  "",
-  "All",
-  "WriteOnly"
+findings contains finding if {
+	some b in tf.resources("aws_s3_bucket")
+	not _logged_write(b.name)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("aws_s3_bucket %q has no CloudTrail data event selector covering write events.", [b.name]),
+		"artifact_uri": b.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [b.type, b.name]),
+	}
 }
 
-# This contains ARNs (at runtime) and IDs (at design time).
-buckets_from_trail_with_s3_data_logging = { arn |
-  trail = trails[_]
-  selector = trail.event_selector[_]
-  valid_selector_types[selector.read_write_type]
-  resource = selector.data_resource[_]
-  resource.type == "AWS::S3::Object"
-  bucket_arn = resource.values[_]
-  arn = trim_right(bucket_arn, "/")
+_logged_write(bucket_name) if {
+	some t in tf.resources("aws_cloudtrail")
+	some sel in tf.sub_blocks(t.block, "event_selector")
+	_selector_write(sel)
+	some dr in tf.sub_blocks(sel, "data_resource")
+	tf.string_attr(dr, "type") == "AWS::S3::Object"
+	_data_resource_matches(dr, bucket_name)
 }
 
-# Buckets are valid if at least one CloudTrail Trail is logging data events for that bucket
-valid_bucket(bucket) {
-  bucket_arn = bucket.arn
-  buckets_from_trail_with_s3_data_logging[k]
-  startswith(bucket_arn, k)
-} {
-  buckets_from_trail_with_s3_data_logging[bucket.id]
-} {
-  buckets_from_trail_with_s3_data_logging["arn:aws:s3:::"]
+_selector_write(sel) if tf.string_attr(sel, "read_write_type") == "All"
+
+_selector_write(sel) if tf.string_attr(sel, "read_write_type") == "WriteOnly"
+
+_selector_write(sel) if not tf.has_key(sel, "read_write_type")
+
+_data_resource_matches(dr, _) if {
+	values := tf.string_list_attr(dr, "values")
+	some v in values
+	v == "arn:aws:s3:::"
 }
 
-policy[j] {
-  bucket = buckets[_]
-  valid_bucket(bucket)
-  j = fugue.allow_resource(bucket)
-} {
-  bucket = buckets[_]
-  not valid_bucket(bucket)
-  j = fugue.deny_resource(bucket)
-}
+_data_resource_matches(dr, bucket_name) if tf.references(dr, "aws_s3_bucket", bucket_name)

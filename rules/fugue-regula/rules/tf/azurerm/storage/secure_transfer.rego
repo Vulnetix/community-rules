@@ -1,39 +1,39 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-package rules.tf_azurerm_storage_secure_transfer
+# Adapted from https://github.com/fugue/regula (FG_R00152).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-__rego__metadoc__ := {
-  "custom": {
-    "controls": {
-      "CIS-Azure_v1.1.0": [
-        "CIS-Azure_v1.1.0_3.1"
-      ],
-      "CIS-Azure_v1.3.0": [
-        "CIS-Azure_v1.3.0_3.1"
-      ]
-    },
-    "severity": "Medium"
-  },
-  "description": "Storage Accounts 'Secure transfer required' should be enabled. The secure transfer option enhances the security of a storage account by only allowing requests to the storage account by a secure connection. This control does not apply for custom domain names since Azure storage does not support HTTPS for custom domain names.",
-  "id": "FG_R00152",
-  "title": "Storage Accounts 'Secure transfer required' should be enabled"
+package vulnetix.rules.fugue_tf_az_sa_secure_transfer
+
+import rego.v1
+
+import data.vulnetix.fugue.tf
+
+metadata := {
+	"id": "FUGUE-TF-AZ-SA-04",
+	"name": "Storage Accounts 'Secure transfer required' should be enabled",
+	"description": "Storage Accounts 'Secure transfer required' should be enabled. The secure transfer option enhances the security of a storage account by only allowing requests to the storage account by a secure connection.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["terraform", "hcl"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-319"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "azure", "storage", "https"],
 }
 
-resource_type := "azurerm_storage_account"
-
-default allow = false
-
-allow {
-  input.enable_https_traffic_only == true
+findings contains finding if {
+	some r in tf.resources("azurerm_storage_account")
+	not tf.bool_attr(r.block, "enable_https_traffic_only") == true
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("Storage account %q does not set enable_https_traffic_only = true.", [r.name]),
+		"artifact_uri": r.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }

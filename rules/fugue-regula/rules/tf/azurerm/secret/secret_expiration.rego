@@ -1,75 +1,44 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-package rules.tf_azurerm_secret_secret_expiration
+# Adapted from https://github.com/fugue/regula (FG_R00451).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-import data.fugue
+package vulnetix.rules.fugue_tf_az_kv_secret_expiration
 
-__rego__metadoc__ := {
-  "custom": {
-    "controls": {
-      "CIS-Azure_v1.3.0": [
-        "CIS-Azure_v1.3.0_8.2"
-      ]
-    },
-    "severity": "Medium"
-  },
-  "description": "Key Vault secrets should have an expiration date. By default, Key Vault secrets do not expire, which can be a security issue if secrets are compromised. As a best practice, an explicit expiration date should be set for secrets and secrets should be rotated.",
-  "id": "FG_R00451",
-  "title": "Key Vault secrets should have an expiration date"
+import rego.v1
+
+import data.vulnetix.fugue.tf
+
+metadata := {
+	"id": "FUGUE-TF-AZ-KV-02",
+	"name": "Key Vault secrets should have an expiration date",
+	"description": "Key Vault secrets should have an expiration date. By default, Key Vault secrets do not expire, which can be a security issue if secrets are compromised. As a best practice, an explicit expiration date should be set for secrets and secrets should be rotated.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["terraform", "hcl"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-522"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "azure", "key-vault", "secret"],
 }
 
-resource_type := "MULTIPLE"
-
-vaults = fugue.resources("azurerm_key_vault")
-key_vault_secrets = fugue.resources("azurerm_key_vault_secret")
-
-secrets_by_vault := {vault_name: secrets |
-  vault = vaults[_]
-  vault_name = vault.name
-  secrets = [secret_id |
-    secret = key_vault_secrets[_]
-    secret.key_vault_id == vault.id
-    secret_id = secret.id
-  ]
+findings contains finding if {
+	some s in tf.resources("azurerm_key_vault_secret")
+	not _has_expiration(s.block)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("Key Vault secret %q does not set an expiration_date.", [s.name]),
+		"artifact_uri": s.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [s.type, s.name]),
+	}
 }
 
-valid_secret(secret) {
-  is_string(secret.expiration_date)
-  count(secret.expiration_date) > 0
-}
-
-report_secret(secret) = ret {
-  not valid_secret(secret)
-  secrets_by_vault[vault][_] == secret.id
-  ret = sprintf(
-    "%s is contained in vault %s",
-    [secret.name, vault],
-  )
-} else = ret {
-  # We may not have the vault (or name) in the input.
-  not valid_secret(secret)
-  ret := "no have an expiration date set"
-}
-
-policy[j] {
-  secret = key_vault_secrets[_]
-  not report_secret(secret)
-  j = fugue.allow_resource(secret)
-}
-
-policy[j] {
-  secret = key_vault_secrets[_]
-  reason = report_secret(secret)
-  j = fugue.deny_resource_with_message(secret, reason)
+_has_expiration(block) if {
+	v := tf.string_attr(block, "expiration_date")
+	count(v) > 0
 }

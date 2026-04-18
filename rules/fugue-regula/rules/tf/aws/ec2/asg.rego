@@ -1,64 +1,60 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-package rules.tf_aws_ec2_asg
+# Adapted from https://github.com/fugue/regula (FG_R00014).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
+# Limitation: does not resolve subnet AZs through aws_subnet cross-references.
 
-import data.fugue
+package vulnetix.rules.fugue_tf_aws_ec2_01
 
+import rego.v1
 
-__rego__metadoc__ := {
-  "custom": {
-    "severity": "Medium"
-  },
-  "description": "Auto Scaling groups should span two or more availability zones. Auto Scaling groups that span two or more availability zones promote redundancy of data, which helps ensure availability and continuity during an adverse situation.",
-  "id": "FG_R00014",
-  "title": "Auto Scaling groups should span two or more availability zones"
+import data.vulnetix.fugue.tf
+
+metadata := {
+	"id": "FUGUE-TF-AWS-EC2-01",
+	"name": "Auto Scaling groups should span two or more availability zones",
+	"description": "Auto Scaling groups that span two or more availability zones promote redundancy to help ensure availability during an adverse situation.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["terraform", "hcl"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-1188"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "aws", "ec2", "asg", "availability"],
 }
 
-autoscaling_groups = fugue.resources("aws_autoscaling_group")
-subnets = fugue.resources("aws_subnet")
-
-az_by_subnet_id := {id: az |
-  sub = subnets[_]
-  id = sub.id
-  az = sub.availability_zone
+findings contains finding if {
+	some r in tf.resources("aws_autoscaling_group")
+	not _has_multi_az(r.block)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("Auto Scaling group %q does not span two or more availability zones (availability_zones or vpc_zone_identifier).", [r.name]),
+		"artifact_uri": r.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }
 
-subnet_azs_by_asg_id := {id: azs |
-  asg = autoscaling_groups[id]
-  azs = {az |
-    sub_id = asg.vpc_zone_identifier[_]
-    az = az_by_subnet_id[sub_id]
-  }
+_has_multi_az(block) if {
+	azs := tf.string_list_attr(block, "availability_zones")
+	count(azs) >= 2
 }
 
-valid_autoscaling_group(asg) {
-  azs = {az | az = asg.availability_zones[_]} 
-  count(azs) >= 2
+_has_multi_az(block) if {
+	# Multiple subnets usually means multiple AZs
+	subs := tf.string_list_attr(block, "vpc_zone_identifier")
+	count(subs) >= 2
 }
 
-valid_autoscaling_group(asg) {
-  count(subnet_azs_by_asg_id[asg.id]) >= 2
-}
-
-resource_type := "MULTIPLE"
-
-policy[j] {
-  asg = autoscaling_groups[_]
-  valid_autoscaling_group(asg)
-  j = fugue.allow_resource(asg)
-} {
-  asg = autoscaling_groups[_]
-  not valid_autoscaling_group(asg)
-  j = fugue.deny_resource(asg)
+_has_multi_az(block) if {
+	# Literal HCL list with multiple references
+	matches := regex.find_all_string_submatch_n(`vpc_zone_identifier\s*=\s*\[([^\]]+)\]`, block, 1)
+	count(matches) > 0
+	refs := regex.find_n(`aws_subnet\.[A-Za-z_][A-Za-z0-9_]*`, matches[0][1], -1)
+	unique := {x | some x in refs}
+	count(unique) >= 2
 }

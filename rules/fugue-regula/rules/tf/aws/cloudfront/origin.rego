@@ -1,51 +1,56 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-package rules.tf_aws_cloudfront_origin
+# Adapted from https://github.com/fugue/regula (FG_R00010).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
+# Limitation: variable/module-resolved origin domain names are not evaluated.
 
-import data.fugue
+package vulnetix.rules.fugue_tf_aws_cf_04
 
+import rego.v1
 
-__rego__metadoc__ := {
-  "custom": {
-    "severity": "Medium"
-  },
-  "description": "CloudFront distribution origin should be set to S3 or origin protocol policy should be set to https-only. CloudFront connections should be encrypted during transmission over networks that can be accessed by malicious individuals. If a CloudFront distribution uses a custom origin, CloudFront should only use HTTPS to communicate with it. This does not apply if the CloudFront distribution is configured to use S3 as origin.",
-  "id": "FG_R00010",
-  "title": "CloudFront distribution origin should be set to S3 or origin protocol policy should be set to https-only"
+import data.vulnetix.fugue.tf
+
+metadata := {
+	"id": "FUGUE-TF-AWS-CF-04",
+	"name": "CloudFront distribution origin should use S3 or https-only protocol",
+	"description": "CloudFront distribution origin should be set to S3 or origin protocol policy should be set to https-only to encrypt traffic to custom origins.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["terraform", "hcl"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-319"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "aws", "cloudfront", "tls"],
 }
 
-cloudfronts = fugue.resources("aws_cloudfront_distribution")
-
-s3_domain_pattern = "s3(\\.[a-z\\-]+?-[0-9]+?){0,1}\\.amazonaws\\.com$"
-
-valid_origin(cf) {
-  re_match(s3_domain_pattern, cf.origin[_].domain_name)
-} {
-  cf.origin[_].custom_origin_config[_].origin_protocol_policy == "https-only"
-} {
-  fugue.input_type != "tf_runtime"
-  fugue.resources("aws_s3_bucket")[cf.origin[_].domain_name]
+findings contains finding if {
+	some r in tf.resources("aws_cloudfront_distribution")
+	some origin in tf.sub_blocks(r.block, "origin")
+	not _valid_origin(origin)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("CloudFront distribution %q has an origin that is not S3 or https-only.", [r.name]),
+		"artifact_uri": r.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }
 
-resource_type := "MULTIPLE"
+_valid_origin(origin) if {
+	d := tf.string_attr(origin, "domain_name")
+	regex.match(`s3(\.[a-z\-]+?-[0-9]+?)?\.amazonaws\.com$`, d)
+}
 
-policy[j] {
-  cf = cloudfronts[_]
-  valid_origin(cf)
-  j = fugue.allow_resource(cf)
-} {
-  cf = cloudfronts[_]
-  not valid_origin(cf)
-  j = fugue.deny_resource(cf)
+_valid_origin(origin) if {
+	some coc in tf.sub_blocks(origin, "custom_origin_config")
+	tf.string_attr(coc, "origin_protocol_policy") == "https-only"
+}
+
+_valid_origin(origin) if {
+	# HCL reference to aws_s3_bucket.<name>.* as domain_name
+	regex.match(`domain_name\s*=\s*aws_s3_bucket\.`, origin)
 }

@@ -1,42 +1,51 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-package rules.tf_google_compute_no_default_service_account
+# Adapted from https://github.com/fugue/regula (FG_R00411).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-import data.google.compute.compute_instance_library as lib
+package vulnetix.rules.fugue_tf_gcp_gce_no_default_service_account
 
-__rego__metadoc__ := {
-  "custom": {
-    "controls": {
-      "CIS-Google_v1.1.0": [
-        "CIS-Google_v1.1.0_4.1"
-      ],
-      "CIS-Google_v1.2.0": [
-        "CIS-Google_v1.2.0_4.1"
-      ]
-    },
-    "severity": "Medium"
-  },
-  "description": "Compute instances should not use the default service account. The default Compute Engine service account has an \"Editor\" role, which allows read and write access to most Google Cloud services. To apply the principle of least privileges and mitigate the risk of a Compute Engine instance being compromised, create a new service account for an instance with only the necessary permissions assigned. Note that GKE-created instances should be exempted from this.",
-  "id": "FG_R00411",
-  "title": "Compute instances should not use the default service account"
+import rego.v1
+
+import data.vulnetix.fugue.tf
+
+metadata := {
+	"id": "FUGUE-TF-GCP-GCE-07",
+	"name": "Compute instances should not use the default service account",
+	"description": "Compute instances should not use the default service account. The default Compute Engine service account has an \"Editor\" role, which allows read and write access to most Google Cloud services. To apply the principle of least privileges and mitigate the risk of a Compute Engine instance being compromised, create a new service account for an instance with only the necessary permissions assigned. Note that GKE-created instances should be exempted from this.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["terraform", "hcl"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-269"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "gcp", "compute", "iam"],
 }
 
-resource_type := "google_compute_instance"
+findings contains finding if {
+	some r in tf.resources("google_compute_instance")
+	some sa in tf.sub_blocks(r.block, "service_account")
+	_is_default_service_account(sa)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("google_compute_instance %q uses the default Compute Engine service account.", [r.name]),
+		"artifact_uri": r.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
+}
 
-default deny = false
+# Default service account email is: <project>-compute@developer.gserviceaccount.com
+# Omitting email also means default SA.
+_is_default_service_account(sa) if {
+	email := tf.string_attr(sa, "email")
+	regex.match(`compute@developer\.gserviceaccount\.com`, email)
+}
 
-deny {
-  sa = input.service_account[_]
-  lib.is_default_service_account(sa)
+_is_default_service_account(sa) if {
+	not tf.has_key(sa, "email")
 }

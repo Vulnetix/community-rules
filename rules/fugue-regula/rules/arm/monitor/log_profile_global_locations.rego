@@ -1,68 +1,60 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# Adapted from https://github.com/fugue/regula (FG_R00342).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-package rules.arm_monitor_log_profile_global_locations
+package vulnetix.rules.fugue_arm_monitor_log_profile_global_locations
 
-import data.fugue
+import rego.v1
 
-__rego__metadoc__ := {
-  "custom": {
-    "controls": {
-      "CIS-Azure_v1.1.0": [
-        "CIS-Azure_v1.1.0_5.1.4"
-      ]
-    },
-    "severity": "Medium"
-  },
-  "description": "Configure the log profile to export activities from all Azure supported regions/locations including global. This rule is evaluated against all resource locations that Fugue has permission to scan.",
-  "id": "FG_R00342",
-  "title": "Monitor log profile should have activity logs for global services and all regions"
+import data.vulnetix.fugue.arm
+
+metadata := {
+	"id": "FUGUE-ARM-MON-03",
+	"name": "Monitor log profile should have activity logs for global services and all regions",
+	"description": "Configure the log profile to export activities from all Azure supported regions/locations including global. This rule is evaluated against all resource locations that can be observed in the template.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["json"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-778"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["arm", "azure", "monitor", "logging"],
 }
 
-input_type := "arm"
-
-resource_type := "MULTIPLE"
-
-log_profiles = fugue.resources("Microsoft.Insights/logprofiles")
-
-used_locations := {lower(l) |
-	fugue.input_resource_types[ty]
-	r := fugue.resources(ty)
-	l := r[_].location
+# Simplification: upstream pulls locations from ALL scanned resources in the
+# cloud account. In our static-file context we derive used_locations from
+# locations observed on sibling resources in the same template.
+_used_locations(template_path) := locs if {
+	locs := {lower(l) |
+		some r in arm.all_resources
+		r.path == template_path
+		l := object.get(r.resource, "location", "")
+		l != ""
+	}
 }
 
-required_locations := used_locations | {"global"}
+_required_locations(template_path) := _used_locations(template_path) | {"global"}
 
-invalid_profiles := {id: msg |
-	profile := log_profiles[id]
-	locs := {lower(l) | l = profile.properties.locations[_]}
-	missing := required_locations - locs
-	count(missing) > 0
-	msg := sprintf(
-		"The log profile is missing the following locations: %s",
-		[concat(", ", missing)]
-	)
+_profile_ok(profile_entry) if {
+	req := _required_locations(profile_entry.path)
+	locs := {lower(l) | some l in object.get(profile_entry.resource.properties, "locations", [])}
+	count(req - locs) == 0
 }
 
-policy[p] {
-	profile := log_profiles[id]
-	not invalid_profiles[id]
-	p := fugue.allow({"resource": profile})
-}
-
-policy[p] {
-	profile := log_profiles[id]
-	msg := invalid_profiles[id]
-	p := fugue.deny({"resource": profile, "message": msg})
+findings contains finding if {
+	some p in arm.resources("Microsoft.Insights/logprofiles")
+	not _profile_ok(p)
+	missing := concat(", ", _required_locations(p.path) - {lower(l) | some l in object.get(p.resource.properties, "locations", [])})
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("Log profile %q is missing locations: %s", [p.resource.name, missing]),
+		"artifact_uri": p.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s/%s", [p.resource.type, p.resource.name]),
+	}
 }

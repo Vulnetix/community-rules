@@ -1,38 +1,47 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-package rules.tf_azurerm_monitor_log_profile_categories
+# Adapted from https://github.com/fugue/regula (FG_R00341).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-__rego__metadoc__ := {
-  "custom": {
-    "controls": {
-      "CIS-Azure_v1.1.0": [
-        "CIS-Azure_v1.1.0_5.1.3"
-      ]
-    },
-    "severity": "Medium"
-  },
-  "description": "Monitor audit profile should log all activities. The log profile should be configured to export all activities from the control/management plane. A log profile controls how the activity log is exported. Configuring the log profile to collect logs for the categories \"write\", \"delete\" and \"action\" ensures that all the control/management plane activities performed on the subscription are exported.",
-  "id": "FG_R00341",
-  "title": "Monitor audit profile should log all activities"
+package vulnetix.rules.fugue_tf_az_mon_log_profile_categories
+
+import rego.v1
+
+import data.vulnetix.fugue.tf
+
+metadata := {
+	"id": "FUGUE-TF-AZ-MON-02",
+	"name": "Monitor audit profile should log all activities",
+	"description": "Monitor audit profile should log all activities. The log profile should be configured to export all activities from the control/management plane. A log profile controls how the activity log is exported. Configuring the log profile to collect logs for the categories 'write', 'delete' and 'action' ensures that all the control/management plane activities performed on the subscription are exported.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["terraform", "hcl"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-778"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "azure", "monitor", "log-profile"],
 }
 
-resource_type := "azurerm_monitor_log_profile"
+findings contains finding if {
+	some r in tf.resources("azurerm_monitor_log_profile")
+	not _has_all_categories(r.block)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("Log profile %q is missing required categories (write, delete, action).", [r.name]),
+		"artifact_uri": r.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
+}
 
-default allow = false
-
-allow {
-  lower(input.categories[_]) == "write"
-  lower(input.categories[_]) == "delete"
-  lower(input.categories[_]) == "action"
+_has_all_categories(block) if {
+	cats := tf.string_list_attr(block, "categories")
+	lowers := {lower(c) | some c in cats}
+	"write" in lowers
+	"delete" in lowers
+	"action" in lowers
 }

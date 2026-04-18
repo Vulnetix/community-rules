@@ -1,33 +1,39 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-package rules.tf_aws_rds_rds_instance_publicly_accessible
+# Adapted from https://github.com/fugue/regula (FG_R00278).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-import data.fugue
+package vulnetix.rules.fugue_tf_aws_rds_07
 
-__rego__metadoc__ := {
-  "custom": {
-    "severity": "High"
-  },
-  "description": "RDS instance 'Publicly Accessible' should not be enabled. Publicly accessible RDS instances allow any AWS user or anonymous user access to the data in the database. RDS instances should not be publicly accessible.",
-  "id": "FG_R00278",
-  "title": "RDS instance 'Publicly Accessible' should not be enabled"
+import rego.v1
+
+import data.vulnetix.fugue.tf
+
+metadata := {
+	"id": "FUGUE-TF-AWS-RDS-07",
+	"name": "RDS instances should not be publicly accessible",
+	"description": "Publicly accessible RDS instances allow any AWS user or anonymous user access to the data in the database.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["terraform", "hcl"],
+	"severity": "high",
+	"level": "error",
+	"kind": "iac",
+	"cwe": ["CWE-284"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "aws", "rds", "public"],
 }
 
-resource_type := "aws_db_instance"
-
-default deny = false
-
-deny {
-  input.publicly_accessible == true
+findings contains finding if {
+	some r in tf.resources("aws_db_instance")
+	tf.bool_attr(r.block, "publicly_accessible") == true
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("aws_db_instance %q has publicly_accessible = true.", [r.name]),
+		"artifact_uri": r.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }

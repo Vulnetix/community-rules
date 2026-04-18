@@ -1,33 +1,39 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-package rules.tf_aws_rds_delete_protection_enabled
+# Adapted from https://github.com/fugue/regula (FG_R00280).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-import data.fugue
+package vulnetix.rules.fugue_tf_aws_rds_02
 
-__rego__metadoc__ := {
-  "custom": {
-    "severity": "Medium"
-  },
-  "description": "RDS instance 'Deletion Protection' should be enabled. Enabling deletion protection ensures that any user or anonymous user can't accidentally or intentionally delete your database.",
-  "id": "FG_R00280",
-  "title": "RDS instance 'Deletion Protection' should be enabled"
+import rego.v1
+
+import data.vulnetix.fugue.tf
+
+metadata := {
+	"id": "FUGUE-TF-AWS-RDS-02",
+	"name": "RDS instance deletion protection should be enabled",
+	"description": "Enabling deletion protection ensures that a user cannot accidentally or intentionally delete the database.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["terraform", "hcl"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-693"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "aws", "rds"],
 }
 
-resource_type := "aws_db_instance"
-
-default allow = false
-
-allow {
-  input.deletion_protection == true
+findings contains finding if {
+	some r in tf.resources("aws_db_instance")
+	tf.is_not_true(r.block, "deletion_protection")
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("aws_db_instance %q does not have deletion_protection = true.", [r.name]),
+		"artifact_uri": r.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }

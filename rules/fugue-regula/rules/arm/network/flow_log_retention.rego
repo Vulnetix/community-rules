@@ -1,68 +1,59 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# Adapted from https://github.com/fugue/regula (FG_R00286).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-package rules.arm_network_flow_log_retention
+package vulnetix.rules.fugue_arm_network_flow_log_retention
 
-import data.fugue
+import rego.v1
 
-__rego__metadoc__ := {
-  "custom": {
-    "severity": "Medium"
-  },
-  "description": "Flow logs enable capturing information about IP traffic flowing in and out of network security groups. Logs can be used to check for anomalies and give insight into suspected breaches.",
-  "id": "FG_R00286",
-  "title": "Virtual Network security group flow log retention period should be set to 90 days or greater"
+import data.vulnetix.fugue.arm
+
+metadata := {
+	"id": "FUGUE-ARM-NET-02",
+	"name": "Virtual Network security group flow log retention period should be set to 90 days or greater",
+	"description": "Flow logs enable capturing information about IP traffic flowing in and out of network security groups. Logs can be used to check for anomalies and give insight into suspected breaches.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["json"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-778"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["arm", "azure", "network", "logging", "retention"],
 }
 
-input_type := "arm"
-
-resource_type := "MULTIPLE"
-
-network_security_groups = fugue.resources("Microsoft.Network/networkSecurityGroups")
-
-flow_logs = fugue.resources("Microsoft.Network/networkWatchers/flowLogs")
-
-nsg_id_to_flow_logs := {nsg_id: nsg_flow_logs |
-	_ := network_security_groups[nsg_id]
-	nsg_flow_logs := [flow_log |
-		flow_log := flow_logs[_]
-		nsg_id == flow_log.properties.targetResourceId
-	]
+_flow_log_has_retention(fl) if {
+	fl.properties.retentionPolicy.enabled == true
+	fl.properties.retentionPolicy.days >= 90
 }
 
-flow_log_has_retention(flow_log) {
-	flow_log.properties.retentionPolicy.enabled == true
-	flow_log.properties.retentionPolicy.days >= 90
+# Match flow logs whose properties.targetResourceId references the NSG by name.
+_matching_flow_logs(nsg_name) := [fl.resource |
+	some fl in arm.resources("Microsoft.Network/networkWatchers/flowLogs")
+	target := object.get(fl.resource.properties, "targetResourceId", "")
+	contains(lower(target), lower(sprintf("networkSecurityGroups/%s", [nsg_name])))
+]
+
+_nsg_ok(nsg_name) if {
+	logs := _matching_flow_logs(nsg_name)
+	count(logs) > 0
+	every fl in logs {
+		_flow_log_has_retention(fl)
+	}
 }
 
-bad_nsg(nsg) = msg {
-	count(nsg_id_to_flow_logs[nsg.id]) < 1
-	msg := "No associated flow logs found"
-} else = msg {
-	flow_log := nsg_id_to_flow_logs[nsg.id][_]
-	not flow_log_has_retention(flow_log)
-	msg := "Retention policy needs to be set to 90 days or more"
-}
-
-policy[p] {
-	nsg := network_security_groups[_]
-	msg := bad_nsg(nsg)
-	p := fugue.deny({"resource": nsg, "message": msg})
-}
-
-policy[p] {
-	nsg := network_security_groups[_]
-	not bad_nsg(nsg)
-	p := fugue.allow({"resource": nsg})
+findings contains finding if {
+	some nsg in arm.resources("Microsoft.Network/networkSecurityGroups")
+	not _nsg_ok(nsg.resource.name)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("NSG %q has missing or insufficient (<90d) flow log retention.", [nsg.resource.name]),
+		"artifact_uri": nsg.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s/%s", [nsg.resource.type, nsg.resource.name]),
+	}
 }

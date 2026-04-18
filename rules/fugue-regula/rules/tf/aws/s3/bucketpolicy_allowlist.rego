@@ -1,76 +1,52 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-package rules.tf_aws_s3_bucketpolicy_allowlist
+# Adapted from https://github.com/fugue/regula (FG_R00211).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
+# Simplified: text-scans aws_s3_bucket_policy body for Allow/s3:List*/Principal "*" statements.
 
-import data.fugue
-import data.aws.s3.s3_library as lib
-import data.aws.s3.s3_public_library as public
-import data.aws.iam.policy_document_library as doclib
+package vulnetix.rules.fugue_tf_aws_s3_06
 
-# S3 bucket policies should not allow list actions for all principals. S3 bucket policies list actions enable users to enumerate information on an organization's S3 buckets and objects. Malicious actors may use this information to identify potential targets for hacks. Users should scope list actions only to users and roles that require this information - not all principals.
-# 
-# aws_s3_bucket
-# aws_s3_bucket_policy
+import rego.v1
 
-__rego__metadoc__ := {
-  "custom": {
-    "severity": "High"
-  },
-  "description": "S3 bucket policies should not allow list actions for all IAM principals and public users. S3 bucket policies list actions enable users to enumerate information on an organization's S3 buckets and objects. Malicious actors may use this information to identify potential targets for hacks. Users should scope list actions only to users and roles that require this information - not all principals.",
-  "id": "FG_R00211",
-  "title": "S3 bucket policies should not allow list actions for all IAM principals and public users"
+import data.vulnetix.fugue.tf
+
+metadata := {
+	"id": "FUGUE-TF-AWS-S3-06",
+	"name": "S3 bucket policies should not allow list actions for all principals",
+	"description": "S3 bucket list actions enable adversaries to enumerate buckets and objects; scope these actions to specific users and roles.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["terraform", "hcl"],
+	"severity": "high",
+	"level": "error",
+	"kind": "iac",
+	"cwe": ["CWE-284"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "aws", "s3", "policy"],
 }
 
-resource_type := "MULTIPLE"
-
-buckets = fugue.resources("aws_s3_bucket")
-
-invalid_buckets[bucket_id] = bucket {
-  bucket = buckets[bucket_id]
-  policies = lib.bucket_policies_for_bucket(bucket)
-  pol = policies[_]
-  list_all(pol)
+findings contains finding if {
+	some p in tf.resources("aws_s3_bucket_policy")
+	_has_public_list(p.block)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("aws_s3_bucket_policy %q grants s3:List* to Principal \"*\".", [p.name]),
+		"artifact_uri": p.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [p.type, p.name]),
+	}
 }
 
-# Determine if a bucket policy allows list actions for all principals as follows:
-# - Effect: Allow
-# - Action: "list"
-# - Principal: "*"
-list_all(pol) {
-  doc = doclib.to_policy_document(pol)
-  statements = as_array(doc.Statement)
-  statement = statements[_]
-
-  statement.Effect == "Allow"
-
-  actions = as_array(statement.Action)
-  related_actions = {"s3:List*", "s3:ListJobs", "s3:ListBucket", "s3:ListBucketVersions", "s3:ListMultipartUploadParts"}
-  related_actions[actions[_]]
-
-  principals = as_array(statement.Principal)
-  principal = principals[_]
-  public.invalid_principal(principal)
+_has_public_list(block) if {
+	regex.match(`(?s)"Effect"\s*:\s*"Allow"[\s\S]*?"Action"\s*:\s*"s3:List[^"]*"[\s\S]*?"Principal"\s*:\s*"\*"`, block)
 }
 
-policy[j] {
-  b = invalid_buckets[_]
-  j = fugue.deny_resource(b)
-} {
-  b = buckets[id]
-  not invalid_buckets[id]
-  j = fugue.allow_resource(b)
+_has_public_list(block) if {
+	regex.match(`(?s)"Effect"\s*:\s*"Allow"[\s\S]*?"Principal"\s*:\s*"\*"[\s\S]*?"Action"\s*:\s*"s3:List[^"]*"`, block)
 }
 
-# Utility: turns anything into an array, if it's not an array already.
-as_array(x) = [x] {not is_array(x)} else = x {true}
+_has_public_list(block) if {
+	regex.match(`(?s)"Action"\s*:\s*\[[^\]]*"s3:List[^"]*"[^\]]*\][\s\S]*?"Principal"\s*:\s*"\*"`, block)
+}

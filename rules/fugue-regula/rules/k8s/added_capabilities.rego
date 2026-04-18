@@ -1,47 +1,40 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# Adapted from https://github.com/fugue/regula (FG_R00492).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-package rules.k8s_added_capabilities
+package vulnetix.rules.fugue_k8s_added_capabilities
 
-import data.fugue
-import data.k8s
+import rego.v1
 
-__rego__metadoc__ := {
-  "custom": {
-    "severity": "Medium"
-  },
-  "description": "Pods should not run containers with added capabilities. Adding capabilities beyond the default set increases the risk of container breakout attacks. In most cases, applications are able to operate normally with all Linux capabilities dropped, or with the default set of capabilities.",
-  "id": "FG_R00492",
-  "title": "Pods should not run containers with added capabilities"
+import data.vulnetix.fugue.k8s
+
+metadata := {
+	"id": "FUGUE-K8S-CAP-01",
+	"name": "Containers should not add Linux capabilities",
+	"description": "Adding capabilities beyond the default set expands the attack surface for container breakout.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["yaml"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-250"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["kubernetes", "capabilities", "hardening"],
 }
 
-input_type := "k8s"
-
-resource_type := "MULTIPLE"
-
-is_invalid(obj) {
-	count(k8s.added_capabilities(obj.containers[_])) > 0
-}
-
-policy[j] {
-	obj := k8s.resources_with_containers[_]
-	not is_invalid(obj)
-	j = fugue.allow_resource(obj.resource)
-}
-
-policy[j] {
-	obj := k8s.resources_with_containers[_]
-	is_invalid(obj)
-	j = fugue.deny_resource(obj.resource)
+findings contains finding if {
+	some obj in k8s.resources_with_containers
+	some c in obj.containers
+	count(k8s.added_capabilities(c)) > 0
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("%s %q adds Linux capabilities to container %q.", [obj.resource.kind, obj.resource.metadata.name, object.get(c, "name", "<unnamed>")]),
+		"artifact_uri": obj.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s/%s", [obj.resource.kind, obj.resource.metadata.name]),
+	}
 }

@@ -1,86 +1,69 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-package rules.cfn_iam_admin_policy
+# Adapted from https://github.com/fugue/regula (FG_R00092).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-import data.fugue
+package vulnetix.rules.fugue_cfn_iam_admin_policy
 
-__rego__metadoc__ := {
-  "custom": {
-    "controls": {
-      "CIS-AWS_v1.2.0": [
-        "CIS-AWS_v1.2.0_1.22"
-      ],
-      "CIS-AWS_v1.3.0": [
-        "CIS-AWS_v1.3.0_1.16"
-      ]
-    },
-    "severity": "High"
-  },
-  "description": "IAM policies should not have full \"*:*\" administrative privileges. IAM policies should start with a minimum set of permissions and include more as needed rather than starting with full administrative privileges. Providing full administrative privileges when unnecessary exposes resources to potentially unwanted actions.",
-  "id": "FG_R00092",
-  "title": "IAM policies should not have full \"*:*\" administrative privileges"
+import rego.v1
+
+import data.vulnetix.fugue.cfn
+
+metadata := {
+	"id": "FUGUE-CFN-IAM-01",
+	"name": "IAM policies should not have full \"*:*\" privileges",
+	"description": "IAM policies should not have full \"*:*\" administrative privileges. Policies should start with a minimum set of permissions rather than wildcard admin access.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["yaml", "json"],
+	"severity": "high",
+	"level": "error",
+	"kind": "iac",
+	"cwe": ["CWE-269"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["cloudformation", "aws", "iam", "privilege-escalation"],
 }
 
-resource_type := "MULTIPLE"
-input_type := "cfn"
+_as_array(x) := [x] if not is_array(x)
+_as_array(x) := x if is_array(x)
 
-policy_resources[resource_id] = ret {
-  iam_policy := fugue.resources("AWS::IAM::Policy")[resource_id]
-  ret := {"resource": iam_policy, "policies": [iam_policy.PolicyDocument]}
-} {
-  iam_role := fugue.resources("AWS::IAM::Role")[resource_id]
-  ret := {
-    "resource": iam_role,
-    "policies": [doc | doc := iam_role.Policies[_].PolicyDocument]
-  }
-} {
-  iam_user := fugue.resources("AWS::IAM::User")[resource_id]
-  ret := {
-    "resource": iam_user,
-    "policies": [doc | doc := iam_user.Policies[_].PolicyDocument]
-  }
-} {
-  iam_group := fugue.resources("AWS::IAM::Group")[resource_id]
-  ret := {
-    "resource": iam_group,
-    "policies": [doc | doc := iam_group.Policies[_].PolicyDocument]
-  }
+_is_wildcard_policy(doc) if {
+	some statement in _as_array(doc.Statement)
+	statement.Effect == "Allow"
+	some resource in _as_array(statement.Resource)
+	resource == "*"
+	some action in _as_array(statement.Action)
+	action == "*"
 }
 
-wildcard_policy_resources[resource_id] = ret {
-  ret := policy_resources[resource_id]
-  is_wildcard_policy(ret.policies[_])
+_policy_docs(r, type_name) := docs if {
+	type_name == "AWS::IAM::Policy"
+	props := cfn.properties(r)
+	docs := [props.PolicyDocument]
 }
 
-is_wildcard_policy(doc) {
-  statement := as_array(doc.Statement)[_]
-  statement.Effect == "Allow"
-
-  resource := as_array(statement.Resource)[_]
-  resource == "*"
-
-  action := as_array(statement.Action)[_]
-  action == "*"
+_policy_docs(r, type_name) := docs if {
+	type_name != "AWS::IAM::Policy"
+	props := cfn.properties(r)
+	docs := [doc |
+		some p in props.Policies
+		doc := p.PolicyDocument
+	]
 }
 
-policy[j] {
-  pr := wildcard_policy_resources[resource_id]
-  j := fugue.deny_resource(pr.resource)
-} {
-  pr := policy_resources[resource_id]
-  not wildcard_policy_resources[resource_id]
-  j := fugue.allow_resource(pr.resource)
+findings contains finding if {
+	some type_name in ["AWS::IAM::Policy", "AWS::IAM::Role", "AWS::IAM::User", "AWS::IAM::Group"]
+	some r in cfn.resources(type_name)
+	docs := _policy_docs(r, type_name)
+	some doc in docs
+	_is_wildcard_policy(doc)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("%s %q grants wildcard Action:'*' on Resource:'*'.", [type_name, r.logical_id]),
+		"artifact_uri": r.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s/%s", [type_name, r.logical_id]),
+	}
 }
-
-as_array(x) = [x] {not is_array(x)} else = x {true}

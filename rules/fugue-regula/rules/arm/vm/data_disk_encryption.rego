@@ -1,72 +1,87 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# Adapted from https://github.com/fugue/regula (FG_R00196).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-package rules.arm_vm_data_disk_encryption
+package vulnetix.rules.fugue_arm_vm_data_disk_encryption
 
-import data.fugue
-import data.arm.disk_encryption_library as lib
+import rego.v1
 
-__rego__metadoc__ := {
-  "custom": {
-    "controls": {
-      "CIS-Azure_v1.1.0": [
-        "CIS-Azure_v1.1.0_7.2"
-      ]
-    },
-    "severity": "High"
-  },
-  "description": "Encrypting the IaaS VM's Data disks ensures that its entire content is fully unrecoverable without a key and thus protects the volume from unwarranted reads.",
-  "id": "FG_R00196",
-  "title": "Virtual Machines data disks (non-boot volumes) should be encrypted"
+import data.vulnetix.fugue.arm
+
+metadata := {
+	"id": "FUGUE-ARM-VM-01",
+	"name": "Virtual Machines data disks (non-boot volumes) should be encrypted",
+	"description": "Encrypting the IaaS VM's Data disks ensures that its entire content is fully unrecoverable without a key and thus protects the volume from unwarranted reads.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["json"],
+	"severity": "high",
+	"level": "error",
+	"kind": "iac",
+	"cwe": ["CWE-311"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["arm", "azure", "vm", "encryption-at-rest"],
 }
 
-input_type := "arm"
-
-resource_type := "MULTIPLE"
-
-disks[id] = disk {
-	disk := lib.disks[id]
-	lib.data_disk_ids[id]
+# Disk is encrypted if encryptionSettingsCollection is enabled, OR the disk has
+# `encryption` with a diskEncryptionSetId.
+_disk_encrypted(disk) if {
+	disk.properties.encryptionSettingsCollection.enabled == true
 }
 
-policy[p] {
-	disk := disks[_]
-	not lib.disk_encrypted(disk)
-	p := fugue.deny_resource(disk)
+_disk_encrypted(disk) if {
+	_ := disk.properties.encryption.diskEncryptionSetId
 }
 
-policy[p] {
-	disk := disks[_]
-	lib.disk_encrypted(disk)
-	p := fugue.allow_resource(disk)
+_disk_encrypted(disk) if {
+	disk.properties.encryption.type
 }
 
-
-# Data disks inlined in virtual machine definitions do not have encryption
-# settings, so mark these as invalid.
-
-managed_disk(disk) {
-	_ := disk.managedDisk.id
+# A data disk: Microsoft.Compute/disks whose id is referenced from a VM's
+# dataDisks[].managedDisk.id. Simplification: without cloud cross-ref we flag
+# all Microsoft.Compute/disks that are not encrypted and are not the VM's OS
+# disk. We consider a disk a "data disk" when its name matches one referenced
+# by any VM's storageProfile.dataDisks, OR conservatively, any unencrypted
+# disk resource that is NOT the OS disk.
+_referenced_as_data_disk(disk_name) if {
+	some vm in arm.resources("Microsoft.Compute/virtualMachines")
+	some d in object.get(vm.resource.properties.storageProfile, "dataDisks", [])
+	ref := object.get(object.get(d, "managedDisk", {}), "id", "")
+	contains(ref, disk_name)
 }
 
-has_unmanaged_disk(virtual_machine) {
-	disk := virtual_machine.properties.storageProfile.dataDisks[_]
-	not managed_disk(disk)
+findings contains finding if {
+	some d in arm.resources("Microsoft.Compute/disks")
+	_referenced_as_data_disk(d.resource.name)
+	not _disk_encrypted(d.resource)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("Data disk %q is not encrypted.", [d.resource.name]),
+		"artifact_uri": d.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s/%s", [d.resource.type, d.resource.name]),
+	}
 }
 
-policy[p] {
-	virtual_machine := lib.virtual_machines[_]
-	has_unmanaged_disk(virtual_machine)
-	p := fugue.deny_resource(virtual_machine)
+# Inlined (unmanaged) data disks have no encryption settings — flag the VM.
+_vm_has_unmanaged_data_disk(vm) if {
+	some d in object.get(vm.resource.properties.storageProfile, "dataDisks", [])
+	not object.get(object.get(d, "managedDisk", {}), "id", "")
+}
+
+findings contains finding if {
+	some vm in arm.resources("Microsoft.Compute/virtualMachines")
+	_vm_has_unmanaged_data_disk(vm)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("VM %q has inlined (unmanaged) data disks that cannot be encrypted.", [vm.resource.name]),
+		"artifact_uri": vm.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s/%s", [vm.resource.type, vm.resource.name]),
+	}
 }

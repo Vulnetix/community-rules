@@ -1,58 +1,45 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# Adapted from https://github.com/fugue/regula (FG_R00498).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-package rules.k8s_default_service_account_bindings
+package vulnetix.rules.fugue_k8s_default_service_account_bindings
 
-import data.fugue
-import data.k8s
+import rego.v1
 
-__rego__metadoc__ := {
-  "custom": {
-    "severity": "Medium"
-  },
-  "description": "Roles and cluster roles should not be bound to the default service account. Dedicated service accounts should be created for each workload with appropriate rights assigned.",
-  "id": "FG_R00498",
-  "title": "Roles and cluster roles should not be bound to the default service account"
+import data.vulnetix.fugue.k8s
+
+metadata := {
+	"id": "FUGUE-K8S-RBAC-04",
+	"name": "Do not bind roles to the default service account",
+	"description": "Each workload should use a dedicated ServiceAccount. Binding roles to the 'default' SA grants those privileges to every pod that does not override the SA.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["yaml"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-269"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["kubernetes", "rbac", "service-account"],
 }
 
-input_type := "k8s"
-
-resource_type := "MULTIPLE"
-
-# This rule specifically checks for the following portion of 5.1.5:
-# "For each namespace in the cluster, review the rights assigned to the default
-# service account and ensure that it has no roles or cluster roles bound to it
-# apart from the defaults."
-
-is_invalid(resource) {
-	# subjects:
-	# - kind: ServiceAccount
-	#   name: default
-	#   namespace: kube-system
-	some i
-	resource.subjects[i].name == "default"
-	resource.subjects[i].kind == "ServiceAccount"
+findings contains finding if {
+	some binding in k8s.role_bindings
+	_binds_default_sa(binding.doc)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("%s %q binds the default ServiceAccount.", [binding.doc.kind, binding.doc.metadata.name]),
+		"artifact_uri": binding.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s/%s", [binding.doc.kind, binding.doc.metadata.name]),
+	}
 }
 
-policy[j] {
-	resource := k8s.role_bindings[_]
-	not is_invalid(resource)
-	j = fugue.allow_resource(resource)
-}
-
-policy[j] {
-	resource := k8s.role_bindings[_]
-	is_invalid(resource)
-	j = fugue.deny_resource(resource)
+_binds_default_sa(binding) if {
+	some s in binding.subjects
+	s.kind == "ServiceAccount"
+	s.name == "default"
 }

@@ -1,58 +1,51 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-package rules.tf_aws_sqs_granular_access
+# Adapted from https://github.com/fugue/regula (FG_R00049).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
+# Simplified: flags aws_sqs_queue whose policy text contains an Allow+Principal:* statement with no Condition.
 
-import data.fugue
+package vulnetix.rules.fugue_tf_aws_sqs_01
 
+import rego.v1
 
-__rego__metadoc__ := {
-  "custom": {
-    "severity": "Critical"
-  },
-  "description": "SQS access policies should not have global \"*.*\" access. SQS policies should not permit all users to access SQS queues. To promote the security principle of least privilege, an SQS policy should allow only necessary principals to access the queue.",
-  "id": "FG_R00049",
-  "title": "SQS access policies should not have global \"*.*\" access"
+import data.vulnetix.fugue.tf
+
+metadata := {
+	"id": "FUGUE-TF-AWS-SQS-01",
+	"name": "SQS access policies should not allow wildcard access",
+	"description": "SQS policies should not permit all principals to access SQS queues; follow the principle of least privilege.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["terraform", "hcl"],
+	"severity": "critical",
+	"level": "error",
+	"kind": "iac",
+	"cwe": ["CWE-284"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "aws", "sqs", "policy"],
 }
 
-# Every sqs in input.
-sqs = fugue.resources("aws_sqs_queue")
-
-resource_type := "MULTIPLE"
-
-policy[j] {
-  q = sqs[id]
-  not allow_all(q.policy)
-  j = fugue.allow_resource(q)
-} {
-  q = sqs[id]
-  allow_all(q.policy)
-  j = fugue.deny_resource(q)
+findings contains finding if {
+	some q in tf.resources("aws_sqs_queue")
+	_has_wildcard_principal(q.block)
+	not _has_condition(q.block)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("aws_sqs_queue %q has a policy allowing all principals without conditions.", [q.name]),
+		"artifact_uri": q.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [q.type, q.name]),
+	}
 }
 
-statement_has_condition(statement) {
-  _ = statement.Condition
+_has_wildcard_principal(block) if {
+	regex.match(`(?s)"Effect"\s*:\s*"Allow"[\s\S]*?"Principal"\s*:\s*"\*"`, block)
 }
 
-allow_all(pol) {
-  json.is_valid(pol)
-  doc = json.unmarshal(pol)
-  statements = as_array(doc.Statement)
-  statement = statements[_]
-  statement.Effect == "Allow"
-  statement.Principal == "*"
-  not statement_has_condition(statement)
+_has_wildcard_principal(block) if {
+	regex.match(`(?s)"Principal"\s*:\s*"\*"[\s\S]*?"Effect"\s*:\s*"Allow"`, block)
 }
 
-# Utility: turns anything into an array, if it's not an array already.
-as_array(x) = [x] {not is_array(x)} else = x {true}
+_has_condition(block) if regex.match(`"Condition"\s*:`, block)

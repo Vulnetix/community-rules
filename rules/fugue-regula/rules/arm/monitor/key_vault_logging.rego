@@ -1,82 +1,69 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# Adapted from https://github.com/fugue/regula (FG_R00344).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-package rules.arm_monitor_key_vault_logging
+package vulnetix.rules.fugue_arm_monitor_key_vault_logging
 
-import data.fugue
+import rego.v1
 
-__rego__metadoc__ := {
-  "custom": {
-    "controls": {
-      "CIS-Azure_v1.1.0": [
-        "CIS-Azure_v1.1.0_5.1.7"
-      ],
-      "CIS-Azure_v1.3.0": [
-        "CIS-Azure_v1.3.0_5.1.5"
-      ]
-    },
-    "severity": "Medium"
-  },
-  "description": "Enable AuditEvent logging for key vault instances to ensure interactions with key vaults are logged and available.",
-  "id": "FG_R00344",
-  "title": "Key Vault logging should be enabled"
+import data.vulnetix.fugue.arm
+
+metadata := {
+	"id": "FUGUE-ARM-MON-01",
+	"name": "Key Vault logging should be enabled",
+	"description": "Enable AuditEvent logging for key vault instances to ensure interactions with key vaults are logged and available.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["json"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-778"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["arm", "azure", "key-vault", "logging"],
 }
 
-input_type := "arm"
+_tokenize(str) := [p |
+	some p in regex.split(`[\[\]()',\s]+`, str)
+	p != ""
+]
 
-resource_type := "MULTIPLE"
-
-key_vaults := fugue.resources("Microsoft.KeyVault/vaults")
-diagnostic_settings := fugue.resources("Microsoft.Insights/diagnosticSettings")
-
-tokenize(str) = ret {
-	ret = [p | p := regex.split(`[\[\]()',[:space:]]+`, str)[_]; p != ""]
+_retention_valid(ret) if {
+	ret.enabled == true
+	ret.days >= 180
 }
 
-retention_is_valid(retention) {
-	retention.enabled == true
-	retention.days >= 180
+_retention_valid(ret) if {
+	ret.enabled == true
+	ret.days == 0
 }
 
-retention_is_valid(retention) {
-	retention.enabled == true
-	retention.days == 0
-}
-
-valid_key_vault_diagnostics := {id: ds |
-	ds := diagnostic_settings[id]
-	contains(lower(ds.scope), "microsoft.keyvault/vaults")
-	log = ds.properties.logs[_]
+_diag_is_valid_for_vault(ds, vault_name) if {
+	scope := object.get(ds.properties, "scope", "")
+	contains(lower(scope), "microsoft.keyvault/vaults")
+	lower(vault_name) in _tokenize(lower(scope))
+	some log in ds.properties.logs
 	lower(log.category) == "auditevent"
 	log.enabled == true
-	retention_is_valid(log.retentionPolicy)
+	_retention_valid(log.retentionPolicy)
 }
 
-valid_key_vaults := {id |
-	kv := key_vaults[id]
-	ds := valid_key_vault_diagnostics[_]
-	tokenize(lower(ds.scope))[_] == lower(kv.name)
+_has_audit_logging(vault_name) if {
+	some ds in arm.resources("Microsoft.Insights/diagnosticSettings")
+	_diag_is_valid_for_vault(ds.resource, vault_name)
 }
 
-policy[p] {
-	kv := key_vaults[id]
-	valid_key_vaults[id]
-	p := fugue.allow_resource(kv)
-}
-
-policy[p] {
-	kv := key_vaults[id]
-	not valid_key_vaults[id]
-	p := fugue.deny_resource(kv)
+findings contains finding if {
+	some kv in arm.resources("Microsoft.KeyVault/vaults")
+	not _has_audit_logging(kv.resource.name)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("Key Vault %q does not have AuditEvent diagnostic logging enabled.", [kv.resource.name]),
+		"artifact_uri": kv.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s/%s", [kv.resource.type, kv.resource.name]),
+	}
 }

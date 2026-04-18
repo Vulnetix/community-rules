@@ -1,54 +1,44 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-package rules.tf_aws_iam_password_reuse_4
+# Adapted from https://github.com/fugue/regula (FG_R00088).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-import data.fugue
+package vulnetix.rules.fugue_tf_aws_iam_09
 
+import rego.v1
 
-__rego__metadoc__ := {
-  "custom": {
-    "severity": "Medium"
-  },
-  "description": "IAM password policies should prevent reuse of the four previously used passwords. IAM password policies should prevent users from reusing any of their previous 4 passwords. Preventing password reuse increases account resiliency against brute force login attempts.",
-  "id": "FG_R00088",
-  "title": "IAM password policies should prevent reuse of the four previously used passwords"
+import data.vulnetix.fugue.tf
+
+metadata := {
+	"id": "FUGUE-TF-AWS-IAM-09",
+	"name": "IAM password policies should prevent reuse of the four previously used passwords",
+	"description": "Password policies should prevent users from reusing any of their previous 4 passwords.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["terraform", "hcl"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-521"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "aws", "iam", "password"],
 }
 
-password_policy_type = "aws_iam_account_password_policy"
-
-password_policies = fugue.resources(password_policy_type)
-exists_password_policy {
-  _ = password_policies[_]
+findings contains finding if {
+	some r in tf.resources("aws_iam_account_password_policy")
+	not _valid(r.block)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("IAM password policy %q has password_reuse_prevention < 4 or missing.", [r.name]),
+		"artifact_uri": r.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }
 
-# Placeholder for missing a password policy from the input.
-resource_type := "MULTIPLE"
-
-policy[j] {
-  fugue.input_type == "tf_runtime"
-  not exists_password_policy
-  j = fugue.missing_resource_with_message(password_policy_type, "No IAM password policy was found.")
-} {
-  pol = password_policies[_]
-  pol.password_reuse_prevention >= 4
-  j = fugue.allow_resource(pol)
-} {
-  pol = password_policies[_]
-  pol.password_reuse_prevention < 4
-  j = fugue.deny_resource(pol)
-} {
-  pol = password_policies[_]
-  not pol.password_reuse_prevention
-  j = fugue.deny_resource(pol)
+_valid(block) if {
+	n := tf.number_attr(block, "password_reuse_prevention")
+	n >= 4
 }

@@ -1,48 +1,45 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-package rules.tf_aws_s3_bucket_access_logging
+# Adapted from https://github.com/fugue/regula (FG_R00274).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-import data.aws.s3.s3_library as lib
-import data.fugue
+package vulnetix.rules.fugue_tf_aws_s3_02
 
-__rego__metadoc__ := {
-  "custom": {
-    "severity": "Medium"
-  },
-  "description": "S3 bucket access logging should be enabled. Enabling server access logging provides detailed records for the requests that are made to a S3 bucket. This information is useful for security and compliance auditing purposes.",
-  "id": "FG_R00274",
-  "title": "S3 bucket access logging should be enabled"
+import rego.v1
+
+import data.vulnetix.fugue.tf
+
+metadata := {
+	"id": "FUGUE-TF-AWS-S3-02",
+	"name": "S3 bucket access logging should be enabled",
+	"description": "Enabling server access logging provides detailed records for the requests that are made to an S3 bucket, which supports security and compliance auditing.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["terraform", "hcl"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-778"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "aws", "s3", "logging"],
 }
 
-resource_type := "MULTIPLE"
-
-buckets := fugue.resources("aws_s3_bucket")
-
-bucket_has_logging(bucket) {
-  _ = bucket.logging[_]
+findings contains finding if {
+	some b in tf.resources("aws_s3_bucket")
+	not tf.has_sub_block(b.block, "logging")
+	not _has_logging_resource(b.name)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("aws_s3_bucket %q has no logging block and no matching aws_s3_bucket_logging.", [b.name]),
+		"artifact_uri": b.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [b.type, b.name]),
+	}
 }
 
-bucket_has_logging(bucket) {
-  _ = lib.bucket_logging_by_bucket[lib.bucket_name_or_id(bucket)]
-}
-
-policy[p] {
-  bucket := buckets[_]
-  bucket_has_logging(bucket)
-  p := fugue.allow_resource(bucket)
-} {
-  bucket := buckets[_]
-  not bucket_has_logging(bucket)
-  p := fugue.deny_resource(bucket)
+_has_logging_resource(name) if {
+	some l in tf.resources("aws_s3_bucket_logging")
+	tf.references(l.block, "aws_s3_bucket", name)
 }

@@ -1,41 +1,77 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-package rules.tf_aws_security_groups_ingress_5800
+# Adapted from https://github.com/fugue/regula (FG_R00266).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
+# Simplified: flags aws_security_group with ingress covering port 5800 from 0.0.0.0/0.
 
-import data.aws.security_groups.library
-import data.fugue
+package vulnetix.rules.fugue_tf_aws_sg_30
 
+import rego.v1
 
-__rego__metadoc__ := {
-  "custom": {
-    "severity": "High"
-  },
-  "description": "VPC security group rules should not permit ingress from '0.0.0.0/0' to TCP/UDP port 5800 (Virtual Network Computing), unless from ELBs. Security groups provide stateful filtering of ingress/egress network traffic to AWS resources. AWS recommends that no security group allows unrestricted ingress access to port 5800, unless it is from AWS Elastic Load Balancer. Removing unfettered connectivity to remote console services reduces a server's exposure to risk.",
-  "id": "FG_R00038",
-  "title": "VPC security group rules should not permit ingress from '0.0.0.0/0' to TCP/UDP port 5800 (Virtual Network Computing), unless from ELBs"
+import data.vulnetix.fugue.tf
+
+metadata := {
+	"id": "FUGUE-TF-AWS-SG-30",
+	"name": "Security group rules should not permit ingress from 0.0.0.0/0 to port 5800 (VNC HTTP)",
+	"description": "Unrestricted ingress from the internet to port 5800 exposes VNC HTTP to remote attack.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["terraform", "hcl"],
+	"severity": "high",
+	"level": "error",
+	"kind": "iac",
+	"cwe": ["CWE-284"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "aws", "security_group"],
 }
 
-security_groups = fugue.resources("aws_security_group")
+findings contains finding if {
+	some sg in tf.resources("aws_security_group")
+	some rule in tf.sub_blocks(sg.block, "ingress")
+	_covers_port(rule, 5800)
+	_rule_zero_cidr(rule)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("aws_security_group %q allows ingress from 0.0.0.0/0 to port 5800.", [sg.name]),
+		"artifact_uri": sg.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [sg.type, sg.name]),
+	}
+}
 
-resource_type := "MULTIPLE"
+findings contains finding if {
+	some r in tf.resources("aws_security_group_rule")
+	lower(tf.string_attr(r.block, "type")) == "ingress"
+	_covers_port(r.block, 5800)
+	_rule_zero_cidr(r.block)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("aws_security_group_rule %q allows ingress from 0.0.0.0/0 to port 5800.", [r.name]),
+		"artifact_uri": r.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
+}
 
-policy[j] {
-  sg = security_groups[global_sg_id]
-  msg = library.deny_security_group_ingress_zero_cidr_to_port_lb(global_sg_id, sg, 5800)
-  j = fugue.deny_resource(sg)
-} {
-  sg = security_groups[global_sg_id]
-  not library.deny_security_group_ingress_zero_cidr_to_port_lb(global_sg_id, sg, 5800)
-  j = fugue.allow_resource(sg)
+_covers_port(block, port) if {
+	from := tf.number_attr(block, "from_port")
+	to := tf.number_attr(block, "to_port")
+	from <= port
+	port <= to
+}
+
+_rule_zero_cidr(block) if {
+	cidrs := tf.string_list_attr(block, "cidr_blocks")
+	some c in cidrs
+	c == "0.0.0.0/0"
+}
+
+_rule_zero_cidr(block) if {
+	cidrs := tf.string_list_attr(block, "ipv6_cidr_blocks")
+	some c in cidrs
+	c == "::/0"
 }

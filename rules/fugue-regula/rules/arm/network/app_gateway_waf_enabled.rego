@@ -1,39 +1,47 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# Adapted from https://github.com/fugue/regula (FG_R00224).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-package rules.arm_network_app_gateway_waf_enabled
+package vulnetix.rules.fugue_arm_network_app_gateway_waf_enabled
 
-import data.fugue
+import rego.v1
 
-__rego__metadoc__ := {
-  "custom": {
-    "severity": "Medium"
-  },
-  "description": "Azure Application Gateway offers a web application firewall (WAF) that provides centralized protection of your web applications from common exploits and vulnerabilities. Web applications are increasingly targeted by malicious attacks that exploit commonly known vulnerabilities.",
-  "id": "FG_R00224",
-  "title": "Ensure Azure Application Gateway Web application firewall (WAF) is enabled"
+import data.vulnetix.fugue.arm
+
+metadata := {
+	"id": "FUGUE-ARM-NET-01",
+	"name": "Ensure Azure Application Gateway Web application firewall (WAF) is enabled",
+	"description": "Azure Application Gateway offers a web application firewall (WAF) that provides centralized protection of your web applications from common exploits and vulnerabilities. Web applications are increasingly targeted by malicious attacks that exploit commonly known vulnerabilities.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["json"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-693"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["arm", "azure", "network", "waf"],
 }
 
-input_type := "arm"
+_waf_tiers := {"WAF", "WAF_v2"}
 
-resource_type := "Microsoft.Network/applicationGateways"
-
-default allow = false
-
-allow {
-	waf_sku_tiers[input.properties.sku.tier]
-	input.properties.webApplicationFirewallConfiguration.enabled == true
+_ok(r) if {
+	tier := r.resource.properties.sku.tier
+	tier in _waf_tiers
+	r.resource.properties.webApplicationFirewallConfiguration.enabled == true
 }
 
-waf_sku_tiers = {"WAF", "WAF_v2"}
+findings contains finding if {
+	some r in arm.resources("Microsoft.Network/applicationGateways")
+	not _ok(r)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("Application Gateway %q does not have WAF enabled.", [r.resource.name]),
+		"artifact_uri": r.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s/%s", [r.resource.type, r.resource.name]),
+	}
+}

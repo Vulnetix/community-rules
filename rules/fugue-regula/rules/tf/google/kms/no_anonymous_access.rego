@@ -1,68 +1,82 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-package rules.tf_google_kms_no_anonymous_access
+# Adapted from https://github.com/fugue/regula (FG_R00386).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-import data.fugue
-import data.google.iam.policy_library as lib_policy
-import data.google.kms.kms_policy_library as lib_kms_policy
+package vulnetix.rules.fugue_tf_gcp_kms_no_anonymous_access
 
-__rego__metadoc__ := {
-  "custom": {
-    "controls": {
-      "CIS-Google_v1.1.0": [
-        "CIS-Google_v1.1.0_1.9"
-      ],
-      "CIS-Google_v1.2.0": [
-        "CIS-Google_v1.2.0_1.9"
-      ]
-    },
-    "severity": "Critical"
-  },
-  "description": "KMS keys should not be anonymously or publicly accessible. IAM policy on Cloud KMS cryptokeys should restrict anonymous and/or public access. Granting permissions to `allUsers` or `allAuthenticatedUsers` allows anyone to access the dataset, which is not desirable if sensitive data is stored at the location.",
-  "id": "FG_R00386",
-  "title": "KMS keys should not be anonymously or publicly accessible"
+import rego.v1
+
+import data.vulnetix.fugue.tf
+
+metadata := {
+	"id": "FUGUE-TF-GCP-KMS-02",
+	"name": "KMS keys should not be anonymously or publicly accessible",
+	"description": "KMS keys should not be anonymously or publicly accessible. IAM policy on Cloud KMS cryptokeys should restrict anonymous and/or public access. Granting permissions to `allUsers` or `allAuthenticatedUsers` allows anyone to access the dataset, which is not desirable if sensitive data is stored at the location.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["terraform", "hcl"],
+	"severity": "critical",
+	"level": "error",
+	"kind": "iac",
+	"cwe": ["CWE-284"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "gcp", "kms", "public-access"],
 }
 
-resource_type := "MULTIPLE"
+_anonymous := {"allUsers", "allAuthenticatedUsers"}
 
-kms_crypto_keys = fugue.resources("google_kms_crypto_key")
-
-invalid_members = {"allUsers", "allAuthenticatedUsers"}
-
-access_granted_in_project_iam := true {
-  m = invalid_members[_]
-  role = lib_policy.project_roles_by_member[m][_]
-  startswith(role, "roles/cloudkms")
+# Anonymous access granted at the project level on any cloudkms role.
+_project_anonymous_cloudkms if {
+	some r in tf.resources("google_project_iam_binding")
+	startswith(tf.string_attr(r.block, "role"), "roles/cloudkms")
+	some m in tf.string_list_attr(r.block, "members")
+	m in _anonymous
 }
 
-has_anonymous_access(key) {
-  access_granted_in_project_iam == true
+_project_anonymous_cloudkms if {
+	some r in tf.resources("google_project_iam_member")
+	startswith(tf.string_attr(r.block, "role"), "roles/cloudkms")
+	tf.string_attr(r.block, "member") in _anonymous
 }
 
-has_anonymous_access(key) {
-  members = lib_kms_policy.kms_members_for_key_id(key.id)
-  count(members & invalid_members) > 0
+findings contains finding if {
+	some key in tf.resources("google_kms_crypto_key")
+	_project_anonymous_cloudkms
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("google_kms_crypto_key %q is affected by a project-level cloudkms binding to allUsers/allAuthenticatedUsers.", [key.name]),
+		"artifact_uri": key.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [key.type, key.name]),
+	}
 }
 
-policy[j] {
-  key = kms_crypto_keys[_]
-  not has_anonymous_access(key)
-  j = fugue.allow_resource(key)
+findings contains finding if {
+	some key in tf.resources("google_kms_crypto_key")
+	_key_scoped_anonymous(key.name)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("google_kms_crypto_key %q grants allUsers or allAuthenticatedUsers via a key-scoped IAM resource.", [key.name]),
+		"artifact_uri": key.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [key.type, key.name]),
+	}
 }
 
-policy[j] {
-  key = kms_crypto_keys[_]
-  has_anonymous_access(key)
-  j = fugue.deny_resource(key)
+_key_scoped_anonymous(key_name) if {
+	some r in tf.resources("google_kms_crypto_key_iam_binding")
+	tf.references(r.block, "google_kms_crypto_key", key_name)
+	some m in tf.string_list_attr(r.block, "members")
+	m in _anonymous
+}
+
+_key_scoped_anonymous(key_name) if {
+	some r in tf.resources("google_kms_crypto_key_iam_member")
+	tf.references(r.block, "google_kms_crypto_key", key_name)
+	tf.string_attr(r.block, "member") in _anonymous
 }

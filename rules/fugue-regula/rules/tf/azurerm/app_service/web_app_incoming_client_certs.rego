@@ -1,39 +1,39 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-package rules.tf_azurerm_app_service_web_app_incoming_client_certs
+# Adapted from https://github.com/fugue/regula (FG_R00348).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-__rego__metadoc__ := {
-  "custom": {
-    "controls": {
-      "CIS-Azure_v1.1.0": [
-        "CIS-Azure_v1.1.0_9.4"
-      ],
-      "CIS-Azure_v1.3.0": [
-        "CIS-Azure_v1.3.0_9.4"
-      ]
-    },
-    "severity": "Medium"
-  },
-  "description": "App Service web apps should have 'Incoming client certificates' enabled. Client certificates allow for the app to request a certificate for incoming requests. Only clients that have a valid certificate will be able to reach the app.",
-  "id": "FG_R00348",
-  "title": "App Service web apps should have 'Incoming client certificates' enabled"
+package vulnetix.rules.fugue_tf_az_as_client_certs
+
+import rego.v1
+
+import data.vulnetix.fugue.tf
+
+metadata := {
+	"id": "FUGUE-TF-AZ-AS-04",
+	"name": "App Service web apps should have 'Incoming client certificates' enabled",
+	"description": "App Service web apps should have 'Incoming client certificates' enabled. Client certificates allow for the app to request a certificate for incoming requests. Only clients that have a valid certificate will be able to reach the app.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["terraform", "hcl"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-295"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "azure", "app-service", "client-cert"],
 }
 
-resource_type := "azurerm_app_service"
-
-default allow = false
-
-allow {
-  input.client_cert_enabled == true
+findings contains finding if {
+	some r in tf.resources("azurerm_app_service")
+	not tf.bool_attr(r.block, "client_cert_enabled") == true
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("App Service %q does not have client_cert_enabled = true.", [r.name]),
+		"artifact_uri": r.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }

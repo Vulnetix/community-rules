@@ -1,47 +1,39 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# Adapted from https://github.com/fugue/regula (FG_R00479).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-package rules.k8s_cluster_admin_role_use
+package vulnetix.rules.fugue_k8s_cluster_admin_role_use
 
-import data.fugue
-import data.k8s
+import rego.v1
 
-__rego__metadoc__ := {
-  "custom": {
-    "severity": "High"
-  },
-  "description": "The 'cluster-admin' role should not be used. The 'cluster-admin' role comes with super-user level access which can be used to manipulate all resources in the cluster. Avoid using this role unless it's absolutely necessary.",
-  "id": "FG_R00479",
-  "title": "The 'cluster-admin' role should not be used"
+import data.vulnetix.fugue.k8s
+
+metadata := {
+	"id": "FUGUE-K8S-RBAC-03",
+	"name": "The cluster-admin role should not be bound",
+	"description": "cluster-admin grants super-user access. Binding it to subjects is rarely justified and should be flagged for review.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["yaml"],
+	"severity": "high",
+	"level": "error",
+	"kind": "iac",
+	"cwe": ["CWE-269"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["kubernetes", "rbac", "least-privilege"],
 }
 
-input_type := "k8s"
-
-resource_type := "MULTIPLE"
-
-is_invalid(resource) {
-	resource.roleRef.name == "cluster-admin"
-}
-
-policy[j] {
-	resource := k8s.role_bindings[_]
-	not is_invalid(resource)
-	j = fugue.allow_resource(resource)
-}
-
-policy[j] {
-	resource := k8s.role_bindings[_]
-	is_invalid(resource)
-	j = fugue.deny_resource(resource)
+findings contains finding if {
+	some binding in k8s.role_bindings
+	binding.doc.roleRef.name == "cluster-admin"
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("%s %q binds the cluster-admin role.", [binding.doc.kind, binding.doc.metadata.name]),
+		"artifact_uri": binding.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s/%s", [binding.doc.kind, binding.doc.metadata.name]),
+	}
 }

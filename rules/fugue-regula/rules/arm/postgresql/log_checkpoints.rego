@@ -1,55 +1,50 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# Adapted from https://github.com/fugue/regula (FG_R00317).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-package rules.arm_postgresql_log_checkpoints
+package vulnetix.rules.fugue_arm_postgresql_log_checkpoints
 
-import data.fugue
-import data.arm.postgresql_configuration_library as lib
+import rego.v1
 
-__rego__metadoc__ := {
-  "custom": {
-    "controls": {
-      "CIS-Azure_v1.1.0": [
-        "CIS-Azure_v1.1.0_4.12"
-      ],
-      "CIS-Azure_v1.3.0": [
-        "CIS-Azure_v1.3.0_4.3.3"
-      ]
-    },
-    "severity": "Medium"
-  },
-  "description": "Enabling log_checkpoints helps the PostgreSQL Database to Log each checkpoint in turn generates query and error logs. However, access to transaction logs is not supported. Query and error logs can be used to identify, troubleshoot, and repair configuration errors and sub-optimal performance.",
-  "id": "FG_R00317",
-  "title": "PostgreSQL Database configuration 'log_checkpoints' should be on"
+import data.vulnetix.fugue.arm
+
+metadata := {
+	"id": "FUGUE-ARM-PG-03",
+	"name": "PostgreSQL Database configuration 'log_checkpoints' should be on",
+	"description": "Enabling log_checkpoints helps the PostgreSQL Database to Log each checkpoint in turn generates query and error logs. However, access to transaction logs is not supported. Query and error logs can be used to identify, troubleshoot, and repair configuration errors and sub-optimal performance.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["json"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-778"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["arm", "azure", "postgresql", "logging"],
 }
 
-input_type := "arm"
-
-resource_type := "MULTIPLE"
-
-is_valid(server) {
-    lower(lib.configuration_value(server, "log_checkpoints")) == "on"
+_config_value(server, key) := v if {
+	some cfg in arm.resources("Microsoft.DBforPostgreSQL/servers/configurations")
+	cfg.path == server.path
+	cfg.resource.name == sprintf("%s/%s", [server.resource.name, key])
+	v := cfg.resource.properties.value
 }
 
-policy[p] {
-	server = lib.servers[_]
-	is_valid(server)
-	p = fugue.allow_resource(server)
+_ok(server) if {
+	lower(_config_value(server, "log_checkpoints")) == "on"
 }
 
-policy[p] {
-	server = lib.servers[_]
-	not is_valid(server)
-	p = fugue.deny_resource(server)
+findings contains finding if {
+	some s in arm.resources("Microsoft.DBforPostgreSQL/servers")
+	not _ok(s)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("PostgreSQL server %q does not have log_checkpoints=on.", [s.resource.name]),
+		"artifact_uri": s.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s/%s", [s.resource.type, s.resource.name]),
+	}
 }

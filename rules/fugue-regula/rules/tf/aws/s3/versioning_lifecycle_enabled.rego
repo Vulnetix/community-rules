@@ -1,71 +1,73 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-package rules.tf_aws_s3_versioning_lifecycle_enabled
+# Adapted from https://github.com/fugue/regula (FG_R00101).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-import data.fugue
-import data.aws.s3.s3_library as lib
+package vulnetix.rules.fugue_tf_aws_s3_12
 
-__rego__metadoc__ := {
-  "custom": {
-    "severity": "Medium"
-  },
-  "description": "S3 bucket versioning and lifecycle policies should be enabled. S3 bucket versioning and lifecycle policies are used to protect data availability and integrity. By enabling object versioning, data is protected from overwrites and deletions. Lifecycle policies ensure sensitive data is deleted when appropriate.",
-  "id": "FG_R00101",
-  "title": "S3 bucket versioning and lifecycle policies should be enabled"
+import rego.v1
+
+import data.vulnetix.fugue.tf
+
+metadata := {
+	"id": "FUGUE-TF-AWS-S3-12",
+	"name": "S3 bucket versioning and lifecycle policies should be enabled",
+	"description": "Enabling object versioning and lifecycle policies protects data availability and integrity.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["terraform", "hcl"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-693"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "aws", "s3", "versioning"],
 }
 
-resource_type := "MULTIPLE"
-
-buckets := fugue.resources("aws_s3_bucket")
-
-bucket_versioning_enabled(bucket) {
-  bucket.versioning[_].enabled
-} {
-  conf := bucket_versioning_configs[lib.bucket_name_or_id(bucket)]
-  lower(conf.versioning_configuration[_].status) == "enabled"
+findings contains finding if {
+	some b in tf.resources("aws_s3_bucket")
+	not _has_versioning(b)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("aws_s3_bucket %q has no versioning enabled.", [b.name]),
+		"artifact_uri": b.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [b.type, b.name]),
+	}
 }
 
-bucket_has_lifecycle_policy(bucket) {
-  count(bucket.lifecycle_rule) >= 1
-} {
-  conf := bucket_lifecycle_configs[lib.bucket_name_or_id(bucket)]
-  count(conf.rule) >= 1
+findings contains finding if {
+	some b in tf.resources("aws_s3_bucket")
+	not _has_lifecycle(b)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("aws_s3_bucket %q has no lifecycle rule configured.", [b.name]),
+		"artifact_uri": b.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [b.type, b.name]),
+	}
 }
 
-bucket_versioning_configs := ret {
-  fugue.input_resource_types["aws_s3_bucket_versioning"]
-  confs := fugue.resources("aws_s3_bucket_versioning")
-  ret := {conf.bucket: conf | conf := confs[_]}
+_has_versioning(b) if {
+	some sub in tf.sub_blocks(b.block, "versioning")
+	tf.bool_attr(sub, "enabled") == true
 }
 
-bucket_lifecycle_configs := ret {
-  fugue.input_resource_types["aws_s3_bucket_lifecycle_configuration"]
-  confs := fugue.resources("aws_s3_bucket_lifecycle_configuration")
-  ret := {conf.bucket: conf | conf := confs[_]}
+_has_versioning(b) if {
+	some v in tf.resources("aws_s3_bucket_versioning")
+	tf.references(v.block, "aws_s3_bucket", b.name)
+	some c in tf.sub_blocks(v.block, "versioning_configuration")
+	lower(tf.string_attr(c, "status")) == "enabled"
 }
 
-bucket_valid(bucket) {
-  bucket_versioning_enabled(bucket)
-  bucket_has_lifecycle_policy(bucket)
-}
+_has_lifecycle(b) if tf.has_sub_block(b.block, "lifecycle_rule")
 
-policy[p] {
-  bucket := buckets[_]
-  bucket_valid(bucket)
-  p := fugue.allow_resource(bucket)
-} {
-  bucket := buckets[_]
-  not bucket_valid(bucket)
-  p := fugue.deny_resource(bucket)
+_has_lifecycle(b) if {
+	some l in tf.resources("aws_s3_bucket_lifecycle_configuration")
+	tf.references(l.block, "aws_s3_bucket", b.name)
+	tf.has_sub_block(l.block, "rule")
 }

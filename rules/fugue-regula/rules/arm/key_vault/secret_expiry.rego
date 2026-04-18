@@ -1,44 +1,44 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# Adapted from https://github.com/fugue/regula (FG_R00451).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-package rules.arm_key_vault_secret_expiry
+package vulnetix.rules.fugue_arm_key_vault_secret_expiry
 
-import data.fugue
+import rego.v1
 
-__rego__metadoc__ := {
-  "custom": {
-    "controls": {
-      "CIS-Azure_v1.1.0": [
-        "CIS-Azure_v1.1.0_8.2"
-      ],
-      "CIS-Azure_v1.3.0": [
-        "CIS-Azure_v1.3.0_8.2"
-      ]
-    },
-    "severity": "Medium"
-  },
-  "description": "By default, Key Vault secrets do not expire, which can be a security issue if secrets are compromised. As a best practice, an explicit expiration date should be set for secrets and secrets should be rotated.",
-  "id": "FG_R00451",
-  "title": "Key Vault secrets should have an expiration date set"
+import data.vulnetix.fugue.arm
+
+metadata := {
+	"id": "FUGUE-ARM-KV-02",
+	"name": "Key Vault secrets should have an expiration date set",
+	"description": "By default, Key Vault secrets do not expire, which can be a security issue if secrets are compromised. As a best practice, an explicit expiration date should be set for secrets and secrets should be rotated.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["json"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-320"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["arm", "azure", "key-vault", "secret-rotation"],
 }
 
-input_type := "arm"
+_has_expiry(r) if {
+	exp := r.resource.properties.attributes.exp
+	is_number(exp)
+}
 
-resource_type := "Microsoft.KeyVault/vaults/secrets"
-
-default allow = false
-
-allow {
-	is_number(input.properties.attributes.exp)
+findings contains finding if {
+	some r in arm.resources("Microsoft.KeyVault/vaults/secrets")
+	not _has_expiry(r)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("Key Vault secret %q does not have an expiration date.", [r.resource.name]),
+		"artifact_uri": r.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s/%s", [r.resource.type, r.resource.name]),
+	}
 }

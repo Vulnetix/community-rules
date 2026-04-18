@@ -1,82 +1,62 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-package rules.tf_azurerm_sql_auditing
+# Adapted from https://github.com/fugue/regula (FG_R00282).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-import data.fugue
+package vulnetix.rules.fugue_tf_az_sql_auditing
 
-__rego__metadoc__ := {
-  "custom": {
-    "controls": {
-      "CIS-Azure_v1.1.0": [
-        "CIS-Azure_v1.1.0_4.1"
-      ],
-      "CIS-Azure_v1.3.0": [
-        "CIS-Azure_v1.3.0_4.1.1"
-      ]
-    },
-    "severity": "Medium"
-  },
-  "description": "SQL Server auditing should be enabled. The Azure platform allows a SQL server to be created as a service. Enabling auditing at the server level ensures that all existing and newly created databases on the SQL server instance are audited. Auditing policy applied on the SQL database does not override auditing policy and settings applied on the particular SQL server where the database is hosted.",
-  "id": "FG_R00282",
-  "title": "SQL Server auditing should be enabled"
+import rego.v1
+
+import data.vulnetix.fugue.tf
+
+metadata := {
+	"id": "FUGUE-TF-AZ-SQL-01",
+	"name": "SQL Server auditing should be enabled",
+	"description": "SQL Server auditing should be enabled. Enabling auditing at the server level ensures that all existing and newly created databases on the SQL server instance are audited.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["terraform", "hcl"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-778"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "azure", "sql", "auditing"],
 }
 
-servers = fugue.resources("azurerm_sql_server")
-databases = fugue.resources("azurerm_sql_database")
-
-server_by_name_or_id(server_name) = ret {
-  matching_servers = [server | server = servers[_]; lower(server.name) == lower(server_name)]
-  count(matching_servers) > 0
-  # SQL server names are globally unique in azure
-  ret = matching_servers[0]
-} else = ret {
-  matching_servers = [server | server = servers[_]; server.id == server_name]
-  count(matching_servers) > 0
-  ret = matching_servers[0]
+findings contains finding if {
+	some s in tf.resources("azurerm_sql_server")
+	not _has_auditing(s.block)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("SQL Server %q has no extended_auditing_policy block.", [s.name]),
+		"artifact_uri": s.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [s.type, s.name]),
+	}
 }
 
-has_auditing(resource) {
-  _ = resource.extended_auditing_policy[_]
+findings contains finding if {
+	some db in tf.resources("azurerm_sql_database")
+	not _has_auditing(db.block)
+	not _server_has_auditing_for(db.block)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("SQL Database %q and its parent server have no extended_auditing_policy block.", [db.name]),
+		"artifact_uri": db.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [db.type, db.name]),
+	}
 }
 
-valid_server(server) {
-  has_auditing(server)
-}
+_has_auditing(block) if tf.has_sub_block(block, "extended_auditing_policy")
 
-valid_database(database) {
-  has_auditing(database)
-} {
-  server_name = database.server_name
-  valid_server(server_by_name_or_id(server_name))
-}
-
-resource_type := "MULTIPLE"
-
-policy[p] {
-  server = servers[_]
-  valid_server(server)
-  p = fugue.allow_resource(server)
-} {
-  server = servers[_]
-  not valid_server(server)
-  p = fugue.deny_resource(server)
-} {
-  database = databases[_]
-  valid_database(database)
-  p = fugue.allow_resource(database)
-} {
-  database = databases[_]
-  not valid_database(database)
-  p = fugue.deny_resource(database)
+_server_has_auditing_for(db_block) if {
+	some s in tf.resources("azurerm_sql_server")
+	tf.references(db_block, "azurerm_sql_server", s.name)
+	_has_auditing(s.block)
 }

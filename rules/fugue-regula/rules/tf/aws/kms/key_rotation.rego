@@ -1,66 +1,49 @@
-# Copyright 2020-2022 Fugue, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-package rules.tf_aws_kms_key_rotation
+# Adapted from https://github.com/fugue/regula (FG_R00036).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-import data.fugue
+package vulnetix.rules.fugue_tf_aws_kms_02
 
+import rego.v1
 
-__rego__metadoc__ := {
-  "custom": {
-    "controls": {
-      "CIS-AWS_v1.2.0": [
-        "CIS-AWS_v1.2.0_2.8"
-      ],
-      "CIS-AWS_v1.3.0": [
-        "CIS-AWS_v1.3.0_3.8"
-      ],
-      "CIS-AWS_v1.4.0": [
-        "CIS-AWS_v1.4.0_3.8"
-      ]
-    },
-    "severity": "Medium"
-  },
-  "description": "KMS CMK rotation should be enabled. It is recommended that users enable rotation for the customer created AWS Customer Master Key (CMK). Rotating encryption keys helps reduce the potential impact of a compromised key as users cannot use the old key to access the data.",
-  "id": "FG_R00036",
-  "title": "KMS CMK rotation should be enabled"
+import data.vulnetix.fugue.tf
+
+metadata := {
+	"id": "FUGUE-TF-AWS-KMS-02",
+	"name": "KMS CMK rotation should be enabled",
+	"description": "It is recommended that users enable rotation for customer-managed KMS Customer Master Keys (CMKs). Rotating encryption keys helps reduce the potential impact of a compromised key.",
+	"help_uri": "https://github.com/fugue/regula",
+	"languages": ["terraform", "hcl"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-324"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "aws", "kms"],
 }
 
-resource_type := "MULTIPLE"
-
-keys := fugue.resources("aws_kms_key")
-
-symmetric_key_spec_prefixes := {"SYMMETRIC"}
-
-is_symmetric(k) {
-  prefix := split(k.customer_master_key_spec, "_")[0]
-  symmetric_key_spec_prefixes[prefix]
+findings contains finding if {
+	some k in tf.resources("aws_kms_key")
+	_is_symmetric(k.block)
+	tf.is_not_true(k.block, "enable_key_rotation")
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("aws_kms_key %q does not have enable_key_rotation = true.", [k.name]),
+		"artifact_uri": k.path,
+		"severity": metadata.severity,
+		"level": metadata.level,
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [k.type, k.name]),
+	}
 }
 
-is_symmetric(k) {
-  not k.customer_master_key_spec
+_is_symmetric(block) if {
+	not tf.has_key(block, "customer_master_key_spec")
 }
 
-policy[j] {
-  k = keys[_]
-  is_symmetric(k)
-  k.enable_key_rotation == true
-  j = fugue.allow_resource(k)
-}
-
-policy[j] {
-  k = keys[_]
-  is_symmetric(k)
-  not k.enable_key_rotation
-  j = fugue.deny_resource(k)
+_is_symmetric(block) if {
+	spec := tf.string_attr(block, "customer_master_key_spec")
+	startswith(spec, "SYMMETRIC")
 }
