@@ -31,18 +31,13 @@ hojjatsajjadinia-opa-security-rules/
 
 ## Input-schema compatibility
 
-Operates on a **Conftest-parsed Dockerfile** — `input[i]` is a list of `{Cmd, Value, Flags, ...}` instruction objects. Purely local; no API calls.
-
-Under Vulnetix CLI (`input.file_contents`), rules load but need an adapter to tokenize each Dockerfile from `input.file_contents[path]` into the `{Cmd, Value}` list shape and rebind `input`.
+**Ported** to the Vulnetix `input.file_contents` text-scanning shape. Each Dockerfile-like file is scanned line by line; the rule emits findings directly.
 
 ## Using with the Vulnetix CLI
 
 ```bash
-# Loads cleanly under Vulnetix; needs adapter to emit findings.
+# Loads and emits findings directly under the Vulnetix CLI.
 vulnetix scan --rule Vulnetix/community-rules
-
-# Direct use via Conftest (upstream path):
-conftest test --policy rules/hojjatsajjadinia-opa-security-rules/ Dockerfile
 ```
 
 ## Attribution
