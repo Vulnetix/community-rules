@@ -32,26 +32,13 @@ iamleot-conftest-policies/
 
 ## Input-schema compatibility
 
-Each domain targets a different parsed-file shape fed by Conftest:
-
-- GitHub Actions workflow YAMLs — rules check `input.name`, `input.jobs[_].name`, etc., and look up the current file via `data.conftest.file.dir` + `data.conftest.file.name`.
-- Dependabot YAML — rules check `input.version`, `input.updates`, etc.
-- Terraform HCL — rules check `input.resource.aws_iam_policy_attachment` (standard `conftest --parser=hcl` shape).
-- Venom test YAML — rules check `input.name`, `input.testcases[_]`.
-
-Purely local: no network, no runtime state.
-
-Under Vulnetix CLI (`input.file_contents`), rules load but need an adapter that feeds each parsed-file type as `input` and provides `data.conftest.file.*` context where applicable.
+**Ported** to the Vulnetix `input.file_contents` text-scanning shape. Each rule keys off the file path (via a `glob`/regex check for `.github/workflows/*.yml`, `.github/dependabot.yml`, `*.tf`, or Venom `testcases:`-bearing YAML) and then applies line/block pattern checks against the raw file text.
 
 ## Using with the Vulnetix CLI
 
 ```bash
-# Loads cleanly; adapter required to route each file type to the correct policy tree.
+# Loads and emits findings directly under the Vulnetix CLI.
 vulnetix scan --rule Vulnetix/community-rules
-
-# Direct use via conftest (matching each domain's parser):
-conftest test --policy rules/iamleot-conftest-policies/policy/github/actions/workflows .github/workflows/ci.yml
-conftest test --policy rules/iamleot-conftest-policies/policy/terraform/aws --parser=hcl main.tf
 ```
 
 ## Attribution

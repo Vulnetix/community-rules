@@ -1,56 +1,60 @@
-# METADATA
-# title: Check `name` keys for test suite, test cases and steps
-# description: |
-#  Venom permit to have `name` keys for test suite, test cases and steps.
-#
-#  The `name` field serves as a short description and is used in several ways
-#  in the report of Venom. For test cases it is used as an identifier to
-#  permit referencing test variables.
-#
-#  Enforcing that is always present make the Venom tests more readable.
-# related_resources:
-# - ref: https://github.com/ovh/venom#concepts
-#   description: 'Venom | Concepts'
-# entrypoint: true
-package venom.name
+# Adapted from https://github.com/iamleot/conftest-policies
+# Original License: BSD-2-Clause (see LICENSE).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
+
+package vulnetix.rules.iamleot_venom_name
 
 import rego.v1
 
-# METADATA
-# description: |
-#  Deny test suite without name.
-# scope: rule
-deny_no_name contains msg if {
-	# Check explicitly for input.testcases to avoid triggering for user
-	# defined executors
-	input.testcases
-	not input.name
-
-	msg := "Test suite should have a `name` key"
+metadata := {
+	"id": "IAMLEOT-VENOM-NAME-001",
+	"name": "Venom test file/testcase should declare name",
+	"description": "Venom test suites, testcases, and steps should declare a `name:` field so reports and variable references resolve unambiguously.",
+	"help_uri": "https://github.com/ovh/venom#concepts",
+	"languages": ["yaml"],
+	"severity": "low",
+	"level": "note",
+	"kind": "sast",
+	"cwe": [],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["venom", "testing", "yaml"],
 }
 
-# METADATA
-# description: |
-#  Deny test case without name.
-# scope: rule
-deny_no_name_in_testcase contains msg if {
-	some testcase, _ in input.testcases
-	not input.testcases[testcase].name
-
-	msg := sprintf("Test case `%v` should have a `name` key", [testcase])
+_looks_like_venom(content) if {
+	regex.match(`(?m)^testcases\s*:`, content)
 }
 
-# METADATA
-# description: |
-#  Deny step without name.
-# scope: rule
-deny_no_name_in_step contains msg if {
-	some testcase, _ in input.testcases
-	some step, _ in input.testcases[testcase].steps
-	not input.testcases[testcase].steps[step].name
+findings contains finding if {
+	some path, content in input.file_contents
+	endswith(lower(path), ".yml")
+	_looks_like_venom(content)
+	not regex.match(`(?m)^name\s*:`, content)
+	finding := {
+		"rule_id": metadata.id,
+		"message": "Venom test suite should declare a top-level `name:` key.",
+		"artifact_uri": path,
+		"severity": "low",
+		"level": "note",
+		"start_line": 1,
+		"snippet": "",
+	}
+}
 
-	msg := sprintf(
-		"Step `%v` of test case `%v` should have a `name` key",
-		[step, testcase],
-	)
+findings contains finding if {
+	some path, content in input.file_contents
+	endswith(lower(path), ".yaml")
+	_looks_like_venom(content)
+	not regex.match(`(?m)^name\s*:`, content)
+	finding := {
+		"rule_id": metadata.id,
+		"message": "Venom test suite should declare a top-level `name:` key.",
+		"artifact_uri": path,
+		"severity": "low",
+		"level": "note",
+		"start_line": 1,
+		"snippet": "",
+	}
 }

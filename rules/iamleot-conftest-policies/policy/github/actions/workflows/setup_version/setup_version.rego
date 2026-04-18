@@ -1,95 +1,61 @@
-# METADATA
-# title: Check that `*-version` in `setup-*` actions is a string
-# description: |
-#  The `*-version` parameters in GitHub Actions workflows `setup-*` should be
-#  a string in order to properly work with versions.
-#
-#  By omitting string in YAML it can fallback to be parsed as a float and
-#  accidentally truncate any possible trailing `0`.
-#
-#  For example, by using `go-version: 1.20` intended to require Go `1.20`
-#  it will be actually parsed as `go-version: 1.2` and Go `1.2` will
-#  be used instead!
-# related_resources:
-# - ref: https://github.com/actions/setup-go
-#   description: GitHub - actions/setup-go
-# - ref: https://github.com/actions/setup-java
-#   description: GitHub - actions/setup-java
-# - ref: https://github.com/actions/setup-node
-#   description: GitHub - actions/setup-node
-# - ref: https://github.com/actions/setup-python
-#   description: GitHub - actions/setup-python
-# entrypoint: true
-package github.actions.workflows.setup_version
+# Adapted from https://github.com/iamleot/conftest-policies
+# Original License: BSD-2-Clause (see LICENSE).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
+
+package vulnetix.rules.iamleot_gha_setup_version
 
 import rego.v1
 
-import data.github.actions.workflows.utils
+import data.vulnetix.iamleot.github_actions_utils as utils
 
-# METADATA
-# description: |
-#  Deny non-string go-version:.
-# scope: rule
-deny_setup_go_version contains msg if {
-	f := concat("/", [data.conftest.file.dir, data.conftest.file.name])
-	utils.is_github_workflows(f)
-	some job, step
-	startswith(input.jobs[job].steps[step].uses, "actions/setup-go")
-	not is_string(input.jobs[job].steps[step]["with"]["go-version"])
-
-	msg := sprintf(
-		"`go-version` in step `%v` of job `%v` that uses `actions/setup-go` should be a string",
-		[step, job],
-	)
+metadata := {
+	"id": "IAMLEOT-GHA-VER-001",
+	"name": "actions/setup-* version must be quoted string",
+	"description": "In `actions/setup-{go,java,node,python}` steps, the `*-version` field must be a quoted string — YAML parses unquoted numerics as floats and truncates trailing zeros (e.g. `1.20` → `1.2`).",
+	"help_uri": "https://github.com/actions/setup-go",
+	"languages": ["yaml"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "sast",
+	"cwe": [],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["github-actions", "yaml", "versioning"],
 }
 
-# METADATA
-# description: |
-#  Deny non-string java-version:.
-# scope: rule
-deny_setup_java_version contains msg if {
-	f := concat("/", [data.conftest.file.dir, data.conftest.file.name])
-	utils.is_github_workflows(f)
-	some job, step
-	startswith(input.jobs[job].steps[step].uses, "actions/setup-java")
-	not is_string(input.jobs[job].steps[step]["with"]["java-version"])
+_line_of(content, offset) := line if {
+	offset >= 0
+	prefix := substring(content, 0, offset)
+	newlines := regex.find_n(`\n`, prefix, -1)
+	line := count(newlines) + 1
+} else := 1
 
-	msg := sprintf(
-		"`java-version` in step `%v` of job `%v` that uses `actions/setup-java` should be a string",
-		[step, job],
-	)
+_setup_actions := {
+	"setup-go": "go-version",
+	"setup-java": "java-version",
+	"setup-node": "node-version",
+	"setup-python": "python-version",
 }
 
-# METADATA
-# description: |
-#  Deny non-string node-version:.
-# scope: rule
-deny_setup_node_version contains msg if {
-	f := concat("/", [data.conftest.file.dir, data.conftest.file.name])
-	utils.is_github_workflows(f)
-	some job, step
-	startswith(input.jobs[job].steps[step].uses, "actions/setup-node")
-	not is_string(input.jobs[job].steps[step]["with"]["node-version"])
-
-	msg := sprintf(
-		"`node-version` in step `%v` of job `%v` that uses `actions/setup-node` should be a string",
-		[step, job],
-	)
-}
-
-# METADATA
-# description: |
-#  Deny non-string python-version:.
-# scope: rule
-deny_setup_python_version contains msg if {
-	f := concat("/", [data.conftest.file.dir, data.conftest.file.name])
-	utils.is_github_workflows(f)
-	some job, step
-	startswith(input.jobs[job].steps[step].uses, "actions/setup-python")
-	not is_string(input.jobs[job].steps[step]["with"]["python-version"])
-
-	msg := sprintf(
-		"`python-version` in step `%v` of job `%v` that uses `actions/setup-python` should be a string",
-		[step, job],
-	)
+# Detect steps using actions/setup-<lang> followed by an unquoted <lang>-version value
+findings contains finding if {
+	some path, content in input.file_contents
+	utils.is_github_workflow_path(path)
+	some action, version_key in _setup_actions
+	# find uses: actions/setup-<lang>@... followed by with: <version_key>: <numeric>
+	pattern := sprintf(`(?s)uses\s*:\s*actions/%s@[^\n]+\n[^\n]*with\s*:\s*[\s\S]{0,200}?%s\s*:\s*([0-9][0-9.]*)\s*(?:#|$|\n)`, [action, version_key])
+	matches := regex.find_n(pattern, content, -1)
+	some match in matches
+	offset := indexof(content, match)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("`%s` passed to actions/%s should be a quoted string (e.g. \"1.20\") to avoid YAML numeric truncation.", [version_key, action]),
+		"artifact_uri": path,
+		"severity": "medium",
+		"level": "warning",
+		"start_line": _line_of(content, offset),
+		"snippet": sprintf("actions/%s: %s: <unquoted>", [action, version_key]),
+	}
 }
