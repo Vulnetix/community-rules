@@ -1,107 +1,247 @@
-package main
+# Adapted from https://github.com/gbrindisi/dockerfile-security
+# Original License: GPL-3.0 (see LICENSE).
+# Ported to the Vulnetix Rego input schema: `input.file_contents`
+# maps file path -> full file text content.
 
-# Do Not store secrets in ENV variables
-secrets_env = [
-    "passwd",
-    "password",
-    "pass",
-    "secret",
-    "key",
-    "access",
-    "api_key",
-    "apikey",
-    "token",
-    "tkn"
-]
+package vulnetix.rules.gbrindisi_dockerfile_security
 
-deny[msg] {    
-    input[i].Cmd == "env"
-    val := input[i].Value
-    contains(lower(val[_]), secrets_env[_])
-    msg = sprintf("Line %d: Potential secret in ENV key found: %s", [i, val])
+import rego.v1
+
+metadata := {
+	"id": "GBRI-DF-001",
+	"name": "Dockerfile security hardening",
+	"description": "Detects Dockerfile anti-patterns (secrets in ENV, untrusted base images, `latest` tags, `ADD` over `COPY`, sudo/curl bashing, running as root, untrusted packages).",
+	"help_uri": "https://github.com/gbrindisi/dockerfile-security",
+	"languages": ["dockerfile"],
+	"severity": "high",
+	"level": "error",
+	"kind": "iac",
+	"cwe": [250, 732, 798],
+	"capec": ["CAPEC-507"],
+	"attack_technique": ["T1610"],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["dockerfile", "container", "iac", "hardening"],
 }
 
-# Only use trusted base images
-deny[msg] {
-    input[i].Cmd == "from"
-    val := split(input[i].Value[0], "/")
-    count(val) > 1
-    msg = sprintf("Line %d: use a trusted base image", [i])
+_is_dockerfile(path) if {
+	lower_path := lower(path)
+	endswith(lower_path, "/dockerfile")
 }
 
-# Do not use 'latest' tag for base imagedeny[msg] {
-deny[msg] {
-    input[i].Cmd == "from"
-    val := split(input[i].Value[0], ":")
-    contains(lower(val[1]), "latest")
-    msg = sprintf("Line %d: do not use 'latest' tag for base images", [i])
+_is_dockerfile(path) if {
+	lower_path := lower(path)
+	lower_path == "dockerfile"
 }
 
-# Avoid curl bashing
-deny[msg] {
-    input[i].Cmd == "run"
-    val := concat(" ", input[i].Value)
-    matches := regex.find_n("(curl|wget)[^|^>]*[|>]", lower(val), -1)
-    count(matches) > 0
-    msg = sprintf("Line %d: Avoid curl bashing", [i])
+_is_dockerfile(path) if {
+	contains(lower(path), "dockerfile.")
 }
 
-# Do not upgrade your system packages
-warn[msg] {
-    input[i].Cmd == "run"
-    val := concat(" ", input[i].Value)
-    matches := regex.match(".*?(apk|yum|dnf|apt|pip).+?(install|[dist-|check-|group]?up[grade|date]).*", lower(val))
-    matches == true
-    msg = sprintf("Line: %d: Do not upgrade your system packages: %s", [i, val])
+_is_dockerfile(path) if {
+	endswith(lower(path), ".dockerfile")
 }
 
-# Do not use ADD if possible
-deny[msg] {
-    input[i].Cmd == "add"
-    msg = sprintf("Line %d: Use COPY instead of ADD", [i])
+_secret_keywords := {
+	"passwd", "password", "pass", "secret", "key", "access",
+	"api_key", "apikey", "token", "tkn",
 }
 
-# Any user...
-any_user {
-    input[i].Cmd == "user"
- }
+_strip_comment(line) := trimmed if {
+	idx := indexof(line, "#")
+	idx >= 0
+	trimmed := trim_space(substring(line, 0, idx))
+} else := trim_space(line)
 
-deny[msg] {
-    not any_user
-    msg = "Do not run as root, use USER instead"
+_forbidden_user(name) if {
+	lower_name := lower(name)
+	lower_name in {"root", "toor", "0"}
 }
 
-# ... but do not root
-forbidden_users = [
-    "root",
-    "toor",
-    "0"
-]
-
-deny[msg] {
-    command := "user"
-    users := [name | input[i].Cmd == "user"; name := input[i].Value]
-    lastuser := users[count(users)-1]
-    contains(lower(lastuser[_]), forbidden_users[_])
-    msg = sprintf("Line %d: Last USER directive (USER %s) is forbidden", [i, lastuser])
+# Secrets in ENV directives
+findings contains finding if {
+	some path, content in input.file_contents
+	_is_dockerfile(path)
+	lines := split(content, "\n")
+	some i
+	line := lines[i]
+	code := _strip_comment(line)
+	startswith(lower(code), "env ")
+	some kw in _secret_keywords
+	contains(lower(code), kw)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("Potential secret in ENV instruction (keyword: %q)", [kw]),
+		"artifact_uri": path,
+		"severity": "high",
+		"level": "error",
+		"start_line": i + 1,
+		"snippet": line,
+	}
 }
 
-# Do not sudo
-deny[msg] {
-    input[i].Cmd == "run"
-    val := concat(" ", input[i].Value)
-    contains(lower(val), "sudo")
-    msg = sprintf("Line %d: Do not use 'sudo' command", [i])
+# Use of :latest tag
+findings contains finding if {
+	some path, content in input.file_contents
+	_is_dockerfile(path)
+	lines := split(content, "\n")
+	some i
+	line := lines[i]
+	code := _strip_comment(line)
+	startswith(lower(code), "from ")
+	contains(lower(code), ":latest")
+	finding := {
+		"rule_id": metadata.id,
+		"message": "Avoid `:latest` tag for base images; pin to a specific version.",
+		"artifact_uri": path,
+		"severity": "medium",
+		"level": "warning",
+		"start_line": i + 1,
+		"snippet": line,
+	}
 }
 
-# Use multi-stage builds
-default multi_stage = false
-multi_stage = true {
-    input[i].Cmd == "copy"
-    val := concat(" ", input[i].Flags)
-    contains(lower(val), "--from=")
+# ADD used (should prefer COPY)
+findings contains finding if {
+	some path, content in input.file_contents
+	_is_dockerfile(path)
+	lines := split(content, "\n")
+	some i
+	line := lines[i]
+	code := _strip_comment(line)
+	startswith(lower(code), "add ")
+	not contains(lower(code), "http")
+	finding := {
+		"rule_id": metadata.id,
+		"message": "Use `COPY` instead of `ADD` for local files.",
+		"artifact_uri": path,
+		"severity": "low",
+		"level": "note",
+		"start_line": i + 1,
+		"snippet": line,
+	}
 }
-deny[msg] {
-    multi_stage == false
-    msg = sprintf("You COPY, but do not appear to use multi-stage builds...", [])
+
+# sudo used inside RUN
+findings contains finding if {
+	some path, content in input.file_contents
+	_is_dockerfile(path)
+	lines := split(content, "\n")
+	some i
+	line := lines[i]
+	code := _strip_comment(line)
+	startswith(lower(code), "run ")
+	regex.match(`\bsudo\b`, lower(code))
+	finding := {
+		"rule_id": metadata.id,
+		"message": "`sudo` used in RUN instruction; container processes should not rely on sudo.",
+		"artifact_uri": path,
+		"severity": "medium",
+		"level": "warning",
+		"start_line": i + 1,
+		"snippet": line,
+	}
+}
+
+# curl | sh / wget | sh pattern
+findings contains finding if {
+	some path, content in input.file_contents
+	_is_dockerfile(path)
+	lines := split(content, "\n")
+	some i
+	line := lines[i]
+	code := _strip_comment(line)
+	startswith(lower(code), "run ")
+	matches := regex.find_n(`(curl|wget)[^|^>]*[|>]`, lower(code), -1)
+	count(matches) > 0
+	finding := {
+		"rule_id": metadata.id,
+		"message": "Avoid curl/wget piped to shell; verify and install packages via a package manager with checksums.",
+		"artifact_uri": path,
+		"severity": "medium",
+		"level": "warning",
+		"start_line": i + 1,
+		"snippet": line,
+	}
+}
+
+# Package manager upgrade/update in RUN
+findings contains finding if {
+	some path, content in input.file_contents
+	_is_dockerfile(path)
+	lines := split(content, "\n")
+	some i
+	line := lines[i]
+	code := _strip_comment(line)
+	startswith(lower(code), "run ")
+	regex.match(`(apk|yum|dnf|apt|apt-get|pip)[^\n]+(upgrade|dist-upgrade|update)`, lower(code))
+	finding := {
+		"rule_id": metadata.id,
+		"message": "Avoid in-place package upgrades; rebuild the image against a newer base instead.",
+		"artifact_uri": path,
+		"severity": "low",
+		"level": "note",
+		"start_line": i + 1,
+		"snippet": line,
+	}
+}
+
+# Final USER is root/toor/0
+findings contains finding if {
+	some path, content in input.file_contents
+	_is_dockerfile(path)
+	users := [user_info |
+		lines := split(content, "\n")
+		some i
+		line := lines[i]
+		code := _strip_comment(line)
+		startswith(lower(code), "user ")
+		user_info := {
+			"line": i + 1,
+			"name": trim_space(substring(code, 5, -1)),
+			"snippet": line,
+		}
+	]
+	count(users) > 0
+	last := users[count(users) - 1]
+	_forbidden_user(last.name)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("Final USER directive is forbidden (%q); run as a non-root user.", [last.name]),
+		"artifact_uri": path,
+		"severity": "high",
+		"level": "error",
+		"start_line": last.line,
+		"snippet": last.snippet,
+	}
+}
+
+# No USER directive at all
+findings contains finding if {
+	some path, content in input.file_contents
+	_is_dockerfile(path)
+	lines := split(content, "\n")
+	user_lines := [i |
+		some i
+		line := lines[i]
+		code := _strip_comment(line)
+		startswith(lower(code), "user ")
+	]
+	count(user_lines) == 0
+	from_lines := [i |
+		some i
+		line := lines[i]
+		code := _strip_comment(line)
+		startswith(lower(code), "from ")
+	]
+	count(from_lines) > 0
+	finding := {
+		"rule_id": metadata.id,
+		"message": "Dockerfile has no USER instruction; the image will run as root.",
+		"artifact_uri": path,
+		"severity": "high",
+		"level": "error",
+		"start_line": from_lines[0] + 1,
+		"snippet": lines[from_lines[0]],
+	}
 }

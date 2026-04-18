@@ -27,18 +27,13 @@ gbrindisi-dockerfile-security/
 
 ## Input-schema compatibility
 
-Operates on a **Conftest-parsed Dockerfile** — `input[i]` is a list of `{Cmd, Value, ...}` instruction objects. Purely local; no API calls.
-
-Under Vulnetix CLI (`input.file_contents`), rules load but need an adapter to tokenize each Dockerfile from `input.file_contents[path]` into the `{Cmd, Value}` list shape and rebind `input`.
+The rule file in this directory has been **ported** from the Conftest-parsed-Dockerfile `input[i]` shape to the Vulnetix `input.file_contents` text-scanning shape. The adapted rule performs line-based pattern matching on any file matching `Dockerfile`, `*.dockerfile`, or `Dockerfile.*`.
 
 ## Using with the Vulnetix CLI
 
 ```bash
-# Loads cleanly under Vulnetix; needs adapter to emit findings.
+# Loads and emits findings directly under the Vulnetix CLI.
 vulnetix scan --rule Vulnetix/community-rules
-
-# Direct use via Conftest (upstream path):
-conftest test --policy rules/gbrindisi-dockerfile-security/ Dockerfile
 ```
 
 ## Licensing note
