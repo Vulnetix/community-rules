@@ -1,0 +1,59 @@
+{
+    "name": "label-usage-for-resources",
+    "attributes": {
+    },
+    "ruleLanguage": "Rego",
+    "match": [
+      {
+        "apiGroups": [
+          ""
+        ],
+        "apiVersions": [
+          "v1"
+        ],
+        "resources": [
+          "Pod"
+        ]
+      },
+      {
+        "apiGroups": [
+          "apps"
+        ],
+        "apiVersions": [
+          "v1"
+        ],
+        "resources": [
+            "Deployment",
+            "ReplicaSet",
+            "DaemonSet",
+            "StatefulSet"
+        ]
+      },
+      {
+        "apiGroups": [
+          "batch"
+        ],
+        "apiVersions": [
+          "*"
+        ],
+        "resources": [
+            "Job",
+            "CronJob"
+        ]
+      }
+    ],
+    "ruleDependencies": [],
+    "configInputs": [
+      "settings.postureControlInputs.recommendedLabels"
+    ],
+    "controlConfigInputs": [
+      {
+        "path": "settings.postureControlInputs.recommendedLabels",
+        "name": "Recommended Labels",
+        "description": "Kubescape checks that workloads have at least one label that identifies semantic attributes."
+      }
+    ],
+    "description": "check if a certain set of labels is defined, this is a configurable control. Initial list: app, tier, phase, version, owner, env.",
+    "remediation": "",
+    "ruleQuery": "armo_builtins"
+  }

@@ -1,0 +1,35 @@
+{
+  "name": "internal-networking",
+  "attributes": {
+    "m$K8sThreatMatrix": "Lateral Movement::Container internal networking, Discovery::Network mapping"
+  },
+  "ruleLanguage": "Rego",
+  "match": [
+    {
+      "apiGroups": [
+        ""
+      ],
+      "apiVersions": [
+        "v1"
+      ],
+      "resources": [
+        "Namespace"
+      ]
+    },
+    {
+      "apiGroups": [
+        "networking.k8s.io"
+      ],
+      "apiVersions": [
+        "v1"
+      ],
+      "resources": [
+        "NetworkPolicy"
+      ]
+    }
+  ],
+  "ruleDependencies": [],
+  "description": "lists namespaces in which no network policies are defined",
+  "remediation": "",
+  "ruleQuery": "armo_builtins"
+}

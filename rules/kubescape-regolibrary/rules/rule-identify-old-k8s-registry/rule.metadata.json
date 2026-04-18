@@ -1,0 +1,50 @@
+{
+  "name": "rule-identify-old-k8s-registry",
+  "attributes": {
+    "m$K8sThreatMatrix": "Initial Access::Compromised images in registry"
+  },
+  "ruleLanguage": "Rego",
+  "match": [
+    {
+      "apiGroups": [
+        ""
+      ],
+      "apiVersions": [
+        "v1"
+      ],
+      "resources": [
+        "Pod"
+      ]
+    },
+    {
+      "apiGroups": [
+        "apps"
+      ],
+      "apiVersions": [
+        "v1"
+      ],
+      "resources": [
+          "Deployment",
+          "ReplicaSet",
+          "DaemonSet",
+          "StatefulSet"
+      ]
+    },
+    {
+      "apiGroups": [
+        "batch"
+      ],
+      "apiVersions": [
+        "*"
+      ],
+      "resources": [
+          "Job",
+          "CronJob"
+      ]
+    }
+  ],
+  "ruleDependencies": [],
+  "description": "Identifying if pod container images are from deprecated K8s registry",
+  "remediation": "Use images new registry",
+  "ruleQuery": ""
+}

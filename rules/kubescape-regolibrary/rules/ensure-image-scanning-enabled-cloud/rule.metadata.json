@@ -1,0 +1,24 @@
+{
+  "name": "ensure-image-scanning-enabled-cloud",
+  "attributes": {
+  },
+  "ruleLanguage": "Rego",
+  "dynamicMatch": [
+    {
+      "apiGroups": [
+        "eks.amazonaws.com"
+      ],
+      "apiVersions": [
+        "v1"
+      ],
+      "resources": [
+        "DescribeRepositories"
+      ]
+    }
+  ],
+  "relevantCloudProviders": ["EKS"],
+  "ruleDependencies": [],
+  "description": "",
+  "remediation": "",
+  "ruleQuery": "armo_builtins"
+}

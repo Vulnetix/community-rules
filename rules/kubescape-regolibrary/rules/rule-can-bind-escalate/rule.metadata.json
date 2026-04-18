@@ -1,0 +1,28 @@
+{
+  "name": "rule-can-bind-escalate",
+  "attributes": {
+    "resourcesAggregator": "subject-role-rolebinding",
+    "useFromKubescapeVersion": "v1.0.133"
+  },
+  "ruleLanguage": "Rego",
+  "match": [
+    {
+      "apiGroups": [
+        "rbac.authorization.k8s.io"
+      ],
+      "apiVersions": [
+        "v1"
+      ],
+      "resources": [
+          "Role",
+          "ClusterRole",
+          "ClusterRoleBinding",
+          "RoleBinding"
+        ]
+    }
+  ],
+  "ruleDependencies": [],
+  "description": "determines which users can or bind escalate roles/clusterroles",
+  "remediation": "",
+  "ruleQuery": "armo_builtins"
+}

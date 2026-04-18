@@ -1,0 +1,52 @@
+{
+  "name": "rule-can-ssh-to-pod-v1",
+  "attributes": {
+    "microsoftK8sThreatMatrix": "Execution::SSH server running inside container",
+    "useFromKubescapeVersion": "v1.0.133"
+  },
+  "ruleLanguage": "Rego",
+  "match": [
+    {
+      "apiGroups": [
+        ""
+      ],
+      "apiVersions": [
+        "v1"
+      ],
+      "resources": [
+        "Pod",
+        "Service"
+      ]
+    },
+    {
+      "apiGroups": [
+        "apps"
+      ],
+      "apiVersions": [
+        "v1"
+      ],
+      "resources": [
+          "Deployment",
+          "ReplicaSet",
+          "DaemonSet",
+          "StatefulSet"
+      ]
+    },
+    {
+      "apiGroups": [
+        "batch"
+      ],
+      "apiVersions": [
+        "*"
+      ],
+      "resources": [
+          "Job",
+          "CronJob"
+      ]
+    }
+  ],
+  "ruleDependencies": [],
+  "description": "denies pods with SSH ports opened(22/222)",
+  "remediation": "",
+  "ruleQuery": "armo_builtins"
+}

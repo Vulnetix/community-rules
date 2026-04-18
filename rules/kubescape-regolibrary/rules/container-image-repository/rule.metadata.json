@@ -1,0 +1,61 @@
+{
+  "name": "container-image-repository",
+  "attributes": {
+    "m$K8sThreatMatrix": "Collection::Images from private registry",
+    "useUntilKubescapeVersion": "v2.3.8"
+  },
+  "ruleLanguage": "Rego",
+  "match": [
+    {
+      "apiGroups": [
+        ""
+      ],
+      "apiVersions": [
+        "v1"
+      ],
+      "resources": [
+        "Pod"
+      ]
+    },
+    {
+      "apiGroups": [
+        "apps"
+      ],
+      "apiVersions": [
+        "v1"
+      ],
+      "resources": [
+          "Deployment",
+          "ReplicaSet",
+          "DaemonSet",
+          "StatefulSet"
+      ]
+    },
+    {
+      "apiGroups": [
+        "batch"
+      ],
+      "apiVersions": [
+        "*"
+      ],
+      "resources": [
+          "Job",
+          "CronJob"
+      ]
+    } 
+  ],
+  "ruleDependencies": [],
+  "configInputs": [
+    "settings.postureControlInputs.imageRepositoryAllowList"
+  ],
+  "controlConfigInputs": [
+    {
+      "path": "settings.postureControlInputs.imageRepositoryAllowList",
+      "name": "Allowed image repositories",
+      "description": "Kubescape checks that all container images are from repositories explicitly allowed in this list."
+    }
+  ],
+  "description": "Fails if image is not from allowed repository",
+  "remediation": "",
+  "ruleQuery": ""
+}

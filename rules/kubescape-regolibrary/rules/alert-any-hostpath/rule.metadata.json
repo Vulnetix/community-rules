@@ -1,0 +1,50 @@
+{
+  "name": "alert-any-hostpath",
+  "attributes": {
+    "m$K8sThreatMatrix": "Privilege Escalation::hostPath mount"
+  },
+  "ruleLanguage": "Rego",
+  "match": [
+    {
+      "apiGroups": [
+        ""
+      ],
+      "apiVersions": [
+        "v1"
+      ],
+      "resources": [
+          "Pod"
+      ]
+    },
+    {
+      "apiGroups": [
+        "apps"
+      ],
+      "apiVersions": [
+        "v1"
+      ],
+      "resources": [
+          "Deployment",
+          "ReplicaSet",
+          "DaemonSet",
+          "StatefulSet"
+      ]
+    },
+    {
+      "apiGroups": [
+        "batch"
+      ],
+      "apiVersions": [
+        "*"
+      ],
+      "resources": [
+          "Job",
+          "CronJob"
+      ]
+    }
+  ],
+  "ruleDependencies": [],
+  "description": "determines if any workload contains a hostPath volume",
+  "remediation": "Try to refrain from using hostPath mounts",
+  "ruleQuery": ""
+}

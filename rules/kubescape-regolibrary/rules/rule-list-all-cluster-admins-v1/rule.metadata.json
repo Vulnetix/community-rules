@@ -1,0 +1,29 @@
+{
+  "name": "rule-list-all-cluster-admins-v1",
+  "attributes": {
+    "m$K8sThreatMatrix": "Privilege Escalation::Cluster-admin binding",
+    "resourcesAggregator": "subject-role-rolebinding",
+    "useFromKubescapeVersion": "v1.0.133"
+  },
+  "ruleLanguage": "Rego",
+  "match": [
+    {
+      "apiGroups": [
+        "rbac.authorization.k8s.io"
+      ],
+      "apiVersions": [
+        "v1"
+      ],
+      "resources": [
+        "Role",
+        "ClusterRole",
+        "ClusterRoleBinding",
+        "RoleBinding"
+      ]
+    }
+  ],
+  "ruleDependencies": [],
+  "description": "determines which users have cluster admin permissions",
+  "remediation": "",
+  "ruleQuery": "armo_builtins"
+}

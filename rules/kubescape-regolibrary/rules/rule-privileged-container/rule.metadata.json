@@ -1,0 +1,52 @@
+{
+  "name": "rule-privilege-escalation",
+  "attributes": {
+    "m$K8sThreatMatrix": "Privilege Escalation::privileged container",
+    "mitre": "Privilege Escalation",
+    "mitreCode": "TA0004"
+  },
+  "ruleLanguage": "Rego",
+  "match": [
+    {
+      "apiGroups": [
+        ""
+      ],
+      "apiVersions": [
+        "v1"
+      ],
+      "resources": [
+        "Pod"
+      ]
+    },
+    {
+      "apiGroups": [
+        "apps"
+      ],
+      "apiVersions": [
+        "v1"
+      ],
+      "resources": [
+          "Deployment",
+          "ReplicaSet",
+          "DaemonSet",
+          "StatefulSet"
+      ]
+    },
+    {
+      "apiGroups": [
+        "batch"
+      ],
+      "apiVersions": [
+        "*"
+      ],
+      "resources": [
+          "Job",
+          "CronJob"
+      ]
+    }
+  ],
+  "ruleDependencies": [],
+  "description": "determines if pods/deployments defined as privileged true",
+  "remediation": "avoid defining pods as privilleged",
+  "ruleQuery": ""
+}

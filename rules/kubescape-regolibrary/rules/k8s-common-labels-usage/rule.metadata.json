@@ -1,0 +1,59 @@
+{
+    "name": "k8s-common-labels-usage",
+    "attributes": {
+    },
+    "ruleLanguage": "Rego",
+    "match": [
+      {
+        "apiGroups": [
+          ""
+        ],
+        "apiVersions": [
+          "v1"
+        ],
+        "resources": [
+          "Pod"
+        ]
+      },
+      {
+        "apiGroups": [
+          "apps"
+        ],
+        "apiVersions": [
+          "v1"
+        ],
+        "resources": [
+          "Deployment",
+          "ReplicaSet",
+          "DaemonSet",
+          "StatefulSet"
+        ]
+      },
+      {
+        "apiGroups": [
+          "batch"
+        ],
+        "apiVersions": [
+          "*"
+        ],
+        "resources": [
+          "Job",
+          "CronJob"
+        ]
+      }
+    ],
+    "ruleDependencies": [],
+    "configInputs": [
+      "settings.postureControlInputs.k8sRecommendedLabels"
+    ],
+    "controlConfigInputs": [
+      {
+        "path": "settings.postureControlInputs.k8sRecommendedLabels",
+        "name": "Kubernetes Recommended Labels",
+        "description": "Kubescape checks that workloads have at least one of this list of configurable labels, as recommended in the Kubernetes documentation."
+      }
+    ],
+    "description": "Check if the list of label that start with app.kubernetes.io/ are defined.",
+    "remediation": "",
+    "ruleQuery": "armo_builtins"
+  }

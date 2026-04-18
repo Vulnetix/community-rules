@@ -1,0 +1,57 @@
+{
+    "name": "rbac-enabled-cloud",
+    "attributes": {
+    },
+    "ruleLanguage": "Rego",
+    "match": [
+      {
+        "apiGroups": [
+        ],
+        "apiVersions": [
+        ],
+        "resources": [
+        ]
+      }
+    ],
+    "dynamicMatch": [
+      {
+        "apiGroups": [
+          "management.azure.com"
+        ],
+        "apiVersions": [
+          "v1"
+        ],
+        "resources": [
+          "ClusterDescribe"
+        ]
+      },
+      {
+        "apiGroups": [
+          "container.googleapis.com"
+        ],
+        "apiVersions": [
+          "v1"
+        ],
+        "resources": [
+          "ClusterDescribe"
+        ]
+      },
+      {
+        "apiGroups": [
+          "eks.amazonaws.com"
+        ],
+        "apiVersions": [
+          "v1"
+        ],
+        "resources": [
+          "ClusterDescribe"
+        ]
+      }
+    ],
+    "relevantCloudProviders": ["AKS", "EKS", "GKE"],
+    "ruleDependencies": [
+    ],
+    "description": "",
+    "remediation": "",
+    "ruleQuery": "armo_builtins"
+}
