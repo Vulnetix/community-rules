@@ -1,6 +1,13 @@
-package main
+# Adapted from https://github.com/cds-snc/opa_checks
+# Helper data — not a rule (no metadata/findings).
+#
+# Postgres reserved words, used by cds-snc postgres_db_* rules.
 
-reserved_words = {
+package vulnetix.cds_snc.reserved_words
+
+import rego.v1
+
+words := {
 	"ALL",
 	"ANALYSE",
 	"ANALYZE",

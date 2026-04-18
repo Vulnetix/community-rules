@@ -1,46 +1,60 @@
-package main
+# Adapted from https://github.com/cds-snc/opa_checks
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-invalid_pattern(parts) {
-	# Unbalanced quotes
-	count(parts) % 2 == 0
+package vulnetix.rules.cds_snc_cloudwatch_metric_pattern
+
+import rego.v1
+
+import data.vulnetix.cds_snc.tf
+
+metadata := {
+	"id": "CDS-SNC-CW-0001",
+	"name": "CloudWatch log metric filter pattern must be valid",
+	"description": "`aws_cloudwatch_log_metric_filter.pattern` must either be a JSON matcher (`{...}`), a sequence of named fields (`[...]`), or a balanced-quote string of alphanumeric terms.",
+	"help_uri": "https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/cloudwatch_log_metric_filter",
+	"languages": ["terraform"],
+	"severity": "low",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": [],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["aws", "cloudwatch"],
 }
 
-invalid_pattern(parts) {
-	# Invalid characters outside of quotes
-	indexes := [idx |
-		x := parts[i]
-		i % 2 == 0
-		idx := i
-		regex.match(`[^[:alnum:],_,\s]`, x)
-	]
-
-	count(indexes) > 0
+findings contains finding if {
+	some path, content in input.file_contents
+	tf.is_tf(path)
+	some block in tf.resource_blocks(content, "aws_cloudwatch_log_metric_filter")
+	pattern := tf.string_attr(block, "pattern")
+	normalized := replace(pattern, `\\"`, "＂")
+	regex.match(`[^[:alnum:],_,\s]`, normalized)
+	not regex.match(`(^{.+}$|^\[.+\]$)`, normalized)
+	parts := split(normalized, `"`)
+	_invalid_pattern(parts)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("aws_cloudwatch_log_metric_filter %q has an invalid filter pattern: %q.", [tf.resource_name(block), pattern]),
+		"artifact_uri": path,
+		"severity": "low",
+		"level": "warning",
+		"start_line": 1,
+		"snippet": pattern,
+	}
 }
 
-invalid_pattern(parts) {
-	# Double quotes
-	pattern := concat("\"", parts)
-	regex.match(`\"\"`, pattern)
+_invalid_pattern(parts) if count(parts) % 2 == 0
+
+_invalid_pattern(parts) if {
+	some i
+	x := parts[i]
+	i % 2 == 0
+	regex.match(`[^[:alnum:],_,\s]`, x)
 }
 
-cloudwatch_log_metric_pattern[r] = resources {
-	changes := input.resource_changes[r]
-	resources := [resource |
-		resource := changes.address
-		changes.type == "aws_cloudwatch_log_metric_filter"
-
-		pattern := changes.change.after.pattern
-		pattern = replace(pattern, "\\\"", "＂")
-
-		regex.match(`[^[:alnum:],_,\s]`, pattern)
-		not regex.match(`(^{.+}$|^\[.+\]$)`, pattern)
-		parts := split(pattern, "\"")
-		invalid_pattern(parts)
-	]
-}
-
-warn_cloudwatch_log_metric_pattern[msg] {
-	resources := cloudwatch_log_metric_pattern[_]
-	resources != []
-	msg := sprintf("Cloudwatch log metric pattern is invalid: %v", [resources])
+_invalid_pattern(parts) if {
+	pattern := concat(`"`, parts)
+	regex.match(`""`, pattern)
 }
