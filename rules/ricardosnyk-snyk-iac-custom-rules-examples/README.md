@@ -35,18 +35,13 @@ ricardosnyk-snyk-iac-custom-rules-examples/
 
 ## Input-schema compatibility
 
-Uses the **Snyk IaC custom-rules SDK**: rules declare `input_type := "tf"` and call `snyk.resources(...)` / `snyk.relates(...)` builtins. These resolve against local Terraform files at scan time via the `snyk iac` CLI — purely local; no API calls.
-
-Under Vulnetix CLI (`input.file_contents`), rules load but need an adapter that (a) HCL-parses each `.tf` file from `input.file_contents[path]`, and (b) shims the `snyk.resources` / `snyk.relates` functions against the parsed resource set. Without the shim, rules return empty result sets.
+**Ported** to the Vulnetix `input.file_contents` text-scanning shape. The `snyk.resources()` / `snyk.relates()` joins have been replaced with regex-based HCL block scanning via `lib/relations.rego`. Each rule emits Vulnetix-format findings directly.
 
 ## Using with the Vulnetix CLI
 
 ```bash
-# Loads cleanly under Vulnetix; needs adapter to emit findings.
+# Loads and emits findings directly under the Vulnetix CLI.
 vulnetix scan --rule Vulnetix/community-rules
-
-# Direct use via the upstream Snyk IaC CLI:
-snyk iac test --rules rules/ricardosnyk-snyk-iac-custom-rules-examples/ ./terraform
 ```
 
 ## Attribution

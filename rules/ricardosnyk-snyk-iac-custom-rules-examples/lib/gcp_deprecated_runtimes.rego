@@ -1,12 +1,8 @@
-package gcp_deprecated_runtimes
+# Adapted from https://github.com/ricardosnyk/snyk-iac-custom-rules-examples
+# Helper package — not a rule (no metadata/findings).
 
-# add python37 on 1/30/2024
-# add go112, go113, go116, go118 on 1/30/2024
+package vulnetix.ricardosnyk.gcp_deprecated_runtimes
 
-# these are all of the currently deprecated runtimes for Google Cloud Functions
+import rego.v1
 
-dep_runtimes := {
-  "nodejs8",
-  "nodejs6",
-  "go111",
-}
+dep_runtimes := {"nodejs8", "nodejs6", "go111"}

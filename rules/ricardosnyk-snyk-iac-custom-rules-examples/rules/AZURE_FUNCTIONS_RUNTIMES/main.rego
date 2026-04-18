@@ -1,51 +1,56 @@
-package rules.AZURE_FUNCTIONS_RUNTIMES
+# Adapted from https://github.com/ricardosnyk/snyk-iac-custom-rules-examples
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-import data.snyk
+package vulnetix.rules.ricardo_azure_functions_runtimes
 
-# This is a sample rule which strictly restricts the use of specific runtimes. The Azure Terraform
-# provider only accepts specific values, so it will will error out if you select an unsupported runtime
-# this example rule simply checks against a set of runtimes that are allowed. 
+import rego.v1
 
-input_type := "tf"
-
-resource_type := "MULTIPLE"
+import data.vulnetix.ricardosnyk.relations
 
 metadata := {
-	"id": "AZURE_FUNCTIONS_RUNTIMES",
+	"id": "RICARDO-AZ-FN-001",
+	"name": "Azure Functions runtime must be in allowlist",
+	"description": "`azurerm_linux_function_app` / `azurerm_windows_function_app` must declare an application stack that is on the allowlist (`node_version=14` or `powershell_core_version=7`). Tailor to your policy.",
+	"help_uri": "https://learn.microsoft.com/en-us/azure/azure-functions/functions-versions",
+	"languages": ["terraform"],
 	"severity": "high",
-	"title": "Allowed Azure Functions Runtimes",
-	"description": "Make sure that you are using a runtime that we allow",
-	"product": [
-		"iac",
-		"cloud",
-	],
+	"level": "error",
+	"kind": "iac",
+	"cwe": [1104],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["azure", "functions", "runtime", "terraform"],
 }
 
-azure_function_types := {"azurerm_linux_function_app", "azurerm_windows_function_app"}
+_function_types := {"azurerm_linux_function_app", "azurerm_windows_function_app"}
 
-# Note: this is a list of actual application stacks. The notion of what is permitted vs. not permitted
-# is solely used as an example for a possible custom rule for this scenario.
-
-permitted_stacks := [ 
-  { "node_version": "14" },
-  { "powershell_core_version": "7" },
+_approved_patterns := [
+	`application_stack\s*\{[^}]*node_version\s*=\s*"14"`,
+	`application_stack\s*\{[^}]*powershell_core_version\s*=\s*"7"`,
 ]
 
-
-all_functions := [function |
-	function_type := azure_function_types[_]
-	functions := snyk.resources(function_type)
-  function := functions[_]
-]
-
-approved_stack(function) {
-	stack := function.site_config[_].application_stack[_]
-	stack == permitted_stacks[_]
+findings contains finding if {
+	some path, content in input.file_contents
+	relations.is_tf(path)
+	some type in _function_types
+	some block in relations.resource_blocks(content, type)
+	not _has_approved_stack(block)
+	offset := indexof(content, block)
+	name := relations.resource_name(block)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("%s %q uses a non-allowlisted application_stack.", [type, name]),
+		"artifact_uri": path,
+		"severity": "high",
+		"level": "error",
+		"start_line": relations.line_of(content, offset),
+		"snippet": sprintf("resource %s %q", [type, name]),
+	}
 }
 
-deny[info] {
-	function := all_functions[_]
-	not approved_stack(function)
-	info := {"resource": function}
+_has_approved_stack(block) if {
+	some pattern in _approved_patterns
+	regex.match(pattern, block)
 }
-
