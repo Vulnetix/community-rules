@@ -1,50 +1,46 @@
-# EmbarkStudios/opa-policies
+# EmbarkStudios/opa-policies (Vulnetix port)
 
 - Upstream: https://github.com/EmbarkStudios/opa-policies
 - License: dual Apache-2.0 / MIT (both preserved as `LICENSE-APACHE` / `LICENSE-MIT`)
 - Commit SHA at import: `c6377cad4660e010dc0bb01bb1a5fcf04efa60be`
-- Imported files: `policy/` tree (tests stripped)
 
-## What these rules cover
-
-A compact, opinionated rule set written by Embark Studios for Conftest, covering three local-file targets:
-
-- **Dockerfile** (`policy/docker/`) — deny root user, `:latest` tag, ADD for tarballs, curl|sh bashing, apt without `--no-install-recommends`, missing pinned versions, sudo usage, etc.
-- **Kubernetes YAML** (`policy/kubernetes/`) — privileged containers, hostPath mounts, resource limits missing, required labels, banned image registries, required readiness/liveness probes.
-- **Terraform HCL** (`policy/terraform/`) — required tags, disallowed resource types, provider versions, required S3 bucket properties.
-
-Each rule ships with a `DOCKER_NN` / `K8S_NN` / `TF_NN` ID and a pattern for declaring **exceptions** via a separate `exception` rule.
+The upstream repository ships three policy suites designed to be run via
+`conftest` against pre-parsed inputs: Terraform HCL (GCP), Kubernetes manifests,
+and Dockerfiles. Under Vulnetix every rule analyses raw text via
+`input.file_contents` (map of file path → file content), so this port replaces
+the upstream input schema with helpers that parse the text directly.
 
 ## Layout
 
 ```
-embarkstudios-opa-policies/
-└── policy/
-    ├── docker/        ← Dockerfile rules
-    ├── kubernetes/    ← K8s YAML rules
-    ├── terraform/     ← Terraform HCL rules
-    ├── lib.rego       ← shared helpers (URL builder, exception lookup)
-    └── testing.rego   ← test harness (not a policy)
+_lib/
+  docker.rego   # vulnetix.embark.docker — Dockerfile instruction parser
+  k8s.rego      # vulnetix.embark.k8s    — multi-doc YAML workload parser
+  tf.rego       # vulnetix.embark.tf     — regex-based HCL resource scanner
+policies/
+  docker/         # 7 Dockerfile rules
+  kubernetes/     # 20 Kubernetes rules
+  terraform/gcp/  # 51 Terraform GCP rules (ar/, bq/, cloudsql/, gce/, gcs/,
+                  #  gke/, iam/, iap/, kms/, memorystore/, org/, project/)
 ```
 
-## Input-schema compatibility
+Each rule file is a standalone Rego module declaring a `metadata` object
+(id, name, severity, help_uri, cwe, …) and a `findings` partial set shaped
+to the Vulnetix SAST rule schema.
 
-Operates on **local files** parsed by Conftest: Dockerfile → instruction list; K8s YAML → parsed resource; Terraform HCL → parsed HCL. Purely local; no API calls.
+## Rule ID mapping
 
-Under Vulnetix CLI (`input.file_contents`), rules load but need an adapter to parse each file from `input.file_contents[path]` and rebind `input` appropriately per file type.
+Upstream IDs use the prefix `DOCKER_`, `K8S_`, or `TF_GCP_`. Vulnetix IDs are
+`EMBARK-<PREFIX>-<NN>` preserving the upstream number, e.g. `K8S_10` ↔
+`EMBARK-K8S-10`. The original wiki link is retained in `help_uri`.
 
-## Using with the Vulnetix CLI
+## Caveats
 
-```bash
-# Loads cleanly under Vulnetix; needs adapter to emit findings.
-vulnetix scan --rule Vulnetix/community-rules
-
-# Direct use via Conftest (upstream path):
-conftest test --policy rules/embarkstudios-opa-policies/policy/ Dockerfile
-conftest test --policy rules/embarkstudios-opa-policies/policy/ deployment.yaml
-conftest test --policy rules/embarkstudios-opa-policies/policy/ main.tf
-```
-
-## Attribution
-
-Copyright Embark Studios. Dual-licensed under the Apache License 2.0 and the MIT License. See `LICENSE-APACHE` and `LICENSE-MIT`.
+- The Terraform HCL helper does regex-based block extraction; it is best-effort
+  and does not resolve variables, locals, or module references. Findings are
+  accurate for attributes set inline in resource blocks.
+- The Kubernetes helper splits multi-document YAML on `---` and parses each doc
+  with `yaml.unmarshal`. Templated Helm charts (e.g. with `{{ .Values.x }}`
+  tokens) will not parse — consistent with upstream behaviour.
+- The Dockerfile helper joins `\<newline>` continuations then splits on
+  whitespace; it does not evaluate `ARG` or `ENV` substitutions.
