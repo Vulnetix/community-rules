@@ -1,35 +1,34 @@
- # © 2023 Snyk Limited
- #
- # Licensed under the Apache License, Version 2.0 (the "License");
- # you may not use this file except in compliance with the License.
- # You may obtain a copy of the License at
- #
- #     http://www.apache.org/licenses/LICENSE-2.0
- #
- # Unless required by applicable law or agreed to in writing, software
- # distributed under the License is distributed on an "AS IS" BASIS,
- # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- # See the License for the specific language governing permissions and
- # limitations under the License.
+# Adapted from https://github.com/snyk-labs/iac-to-cloud-example-custom-rules
+# Original License: Apache-2.0 (see LICENSE).
+# Helper package — not a rule (no metadata/findings).
 
-package relation_helpers
+package vulnetix.snyk_labs.helpers
 
-import data.snyk
+import rego.v1
 
-relation_from_fields(name, left, right) = info {
-	info := {
-		"name": name,
-		"keys": {
-			"left": [[resource, resource[field]] |
-				fields := left[resource_type]
-				resource := snyk.resources(resource_type)[_]
-				field := fields[_]
-			],
-			"right": [[resource, resource[field]] |
-				fields := right[resource_type]
-				resource := snyk.resources(resource_type)[_]
-				field := fields[_]
-			],
-		},
-	}
+is_tf(path) if endswith(lower(path), ".tf")
+
+# Line number of a given byte offset in content.
+line_of(content, offset) := line if {
+	offset >= 0
+	prefix := substring(content, 0, offset)
+	newlines := regex.find_n(`\n`, prefix, -1)
+	line := count(newlines) + 1
+} else := 1
+
+# Extract the declared resource name from a Terraform block header.
+resource_name(block) := name if {
+	parts := regex.find_n(`"[^"]+"\s+"([^"]+)"`, block, 1)
+	count(parts) > 0
+	captures := regex.find_n(`"([^"]+)"`, parts[0], -1)
+	count(captures) >= 2
+	name := trim(captures[1], `"`)
+}
+
+# Find all top-level resource blocks of a given type across a file's content.
+# Returns a list of the block text (starting at `resource "type" "name" {` line).
+resource_blocks(content, type) := blocks if {
+	# Match `resource "<type>" "<name>" { ... }` using a greedy single-block regex.
+	pattern := sprintf(`(?s)resource\s+"%s"\s+"[^"]+"\s*\{(?:[^{}]|\{[^{}]*\})*?\}`, [type])
+	blocks := regex.find_n(pattern, content, -1)
 }

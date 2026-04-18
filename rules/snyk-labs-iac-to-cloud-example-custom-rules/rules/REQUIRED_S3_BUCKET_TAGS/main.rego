@@ -1,62 +1,79 @@
- # © 2023 Snyk Limited
- #
- # Licensed under the Apache License, Version 2.0 (the "License");
- # you may not use this file except in compliance with the License.
- # You may obtain a copy of the License at
- #
- #     http://www.apache.org/licenses/LICENSE-2.0
- #
- # Unless required by applicable law or agreed to in writing, software
- # distributed under the License is distributed on an "AS IS" BASIS,
- # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- # See the License for the specific language governing permissions and
- # limitations under the License.
+# Adapted from https://github.com/snyk-labs/iac-to-cloud-example-custom-rules
+# Original License: Apache-2.0 (see LICENSE).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-package rules.REQUIRED_S3_BUCKET_TAGS
+package vulnetix.rules.snyk_s3_required_tags
 
-import data.snyk
+import rego.v1
 
-input_type := "tf"
+import data.vulnetix.snyk_labs.helpers
 
 metadata := {
-	"id": "REQUIRED_S3_BUCKET_TAGS",
-	"severity": "high",
-	"title": "S3 Bucket Tags",
-	"description": "All S3 Buckets must be tagged properly - they need to have an owner tag, and a classification tag with the proper values.",
-	"product": [
-		"iac",
-		"cloud",
-	],
+	"id": "SNYK-LABS-S3-TAGS-001",
+	"name": "S3 bucket must declare owner and classification tags",
+	"description": "Each `aws_s3_bucket` must have `tags.owner` (from allowed team list) and `tags.classification` (public | internal | confidential).",
+	"help_uri": "https://docs.aws.amazon.com/AmazonS3/latest/userguide/object-tagging.html",
+	"languages": ["terraform"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": [],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["aws", "s3", "tagging", "terraform"],
 }
 
-buckets := snyk.resources("aws_s3_bucket")
+_allowed_owners := {"devteam1", "devteam2", "devteam3", "devteam4"}
+_allowed_classifications := {"public", "internal", "confidential"}
 
-owners := {
-	"devteam1",
-	"devteam2",
-	"devteam3",
-	"devteam4"
+findings contains finding if {
+	some path, content in input.file_contents
+	helpers.is_tf(path)
+	some block in helpers.resource_blocks(content, "aws_s3_bucket")
+	name := helpers.resource_name(block)
+	not _has_valid_owner(block)
+	offset := indexof(content, block)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("aws_s3_bucket %q missing or unknown `tags.owner` (must be one of %s).", [name, concat(",", [o | some o in _allowed_owners])]),
+		"artifact_uri": path,
+		"severity": "medium",
+		"level": "warning",
+		"start_line": helpers.line_of(content, offset),
+		"snippet": sprintf("aws_s3_bucket %q", [name]),
+	}
 }
 
-classifications := {
-	"public",
-	"internal",
-	"confidential"
+findings contains finding if {
+	some path, content in input.file_contents
+	helpers.is_tf(path)
+	some block in helpers.resource_blocks(content, "aws_s3_bucket")
+	name := helpers.resource_name(block)
+	not _has_valid_classification(block)
+	offset := indexof(content, block)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("aws_s3_bucket %q missing or unknown `tags.classification` (public|internal|confidential).", [name]),
+		"artifact_uri": path,
+		"severity": "medium",
+		"level": "warning",
+		"start_line": helpers.line_of(content, offset),
+		"snippet": sprintf("aws_s3_bucket %q", [name]),
+	}
 }
 
-
-properly_tagged(bucket) {
-	owners[bucket.tags.owner]
-	classifications[bucket.tags.classification]
+_has_valid_owner(block) if {
+	owner_match := regex.find_n(`owner\s*=\s*"([^"]+)"`, block, 1)
+	count(owner_match) > 0
+	owner := regex.replace(owner_match[0], `.*"([^"]+)".*`, "$1")
+	_allowed_owners[owner]
 }
 
-deny[info] {
-	bucket := buckets[_]
-	not properly_tagged(bucket)
-	info := {"resource": bucket}
-}
-
-resources[info] {
-	bucket := buckets[_]
-	info := {"resource": bucket}
+_has_valid_classification(block) if {
+	cls_match := regex.find_n(`classification\s*=\s*"([^"]+)"`, block, 1)
+	count(cls_match) > 0
+	cls := regex.replace(cls_match[0], `.*"([^"]+)".*`, "$1")
+	_allowed_classifications[cls]
 }

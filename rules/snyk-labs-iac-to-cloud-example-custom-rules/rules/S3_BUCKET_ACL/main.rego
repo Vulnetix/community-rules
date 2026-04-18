@@ -1,55 +1,46 @@
- # © 2023 Snyk Limited
- #
- # Licensed under the Apache License, Version 2.0 (the "License");
- # you may not use this file except in compliance with the License.
- # You may obtain a copy of the License at
- #
- #     http://www.apache.org/licenses/LICENSE-2.0
- #
- # Unless required by applicable law or agreed to in writing, software
- # distributed under the License is distributed on an "AS IS" BASIS,
- # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- # See the License for the specific language governing permissions and
- # limitations under the License.
+# Adapted from https://github.com/snyk-labs/iac-to-cloud-example-custom-rules
+# Original License: Apache-2.0 (see LICENSE).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-package rules.S3_ACL
+package vulnetix.rules.snyk_s3_bucket_acl
 
-import data.snyk
+import rego.v1
 
-input_type := "tf"
+import data.vulnetix.snyk_labs.helpers
 
 metadata := {
-	"id": "S3_BUCKET_ACL",
+	"id": "SNYK-LABS-S3-ACL-001",
+	"name": "S3 bucket ACL must be private",
+	"description": "Each `aws_s3_bucket_acl` must set `acl = \"private\"`.",
+	"help_uri": "https://docs.aws.amazon.com/AmazonS3/latest/userguide/acl-overview.html",
+	"languages": ["terraform"],
 	"severity": "critical",
-	"title": "All ACLs should be private",
-	"description": "Checking S3 Buckets for Private ACLs using the new terraform format.",
-	"product": [
-		"iac",
-		"cloud",
-	],
+	"level": "error",
+	"kind": "iac",
+	"cwe": [732],
+	"capec": ["CAPEC-122"],
+	"attack_technique": ["T1530"],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["aws", "s3", "acl", "terraform"],
 }
 
-buckets := snyk.resources("aws_s3_bucket")
-
-deny[info] {
-	bucket := buckets[_]
-	acls := snyk.relates(bucket, "aws_s3_bucket.aws_s3_bucket_acl")
-	acl := acls[_]
-	acl.acl != "private"
-	info := {"primary_resource": bucket}
-
-}
-
-resources[info] {
-	bucket := buckets[_]
-	info := {"primary_resource": bucket}
-}
-
-resources[info] {
-	bucket := buckets[_]
-	acls := snyk.relates(bucket, "aws_s3_bucket.aws_s3_bucket_acl")
-	info := {
-		"primary_resource": bucket,
-		"resource": acls[_],
+findings contains finding if {
+	some path, content in input.file_contents
+	helpers.is_tf(path)
+	some block in helpers.resource_blocks(content, "aws_s3_bucket_acl")
+	acl_match := regex.find_n(`acl\s*=\s*"([^"]+)"`, block, 1)
+	count(acl_match) > 0
+	acl := regex.replace(acl_match[0], `.*"([^"]+)".*`, "$1")
+	acl != "private"
+	offset := indexof(content, block)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("aws_s3_bucket_acl has acl=%q; must be \"private\".", [acl]),
+		"artifact_uri": path,
+		"severity": "critical",
+		"level": "error",
+		"start_line": helpers.line_of(content, offset),
+		"snippet": acl_match[0],
 	}
 }

@@ -1,54 +1,53 @@
- # © 2023 Snyk Limited
- #
- # Licensed under the Apache License, Version 2.0 (the "License");
- # you may not use this file except in compliance with the License.
- # You may obtain a copy of the License at
- #
- #     http://www.apache.org/licenses/LICENSE-2.0
- #
- # Unless required by applicable law or agreed to in writing, software
- # distributed under the License is distributed on an "AS IS" BASIS,
- # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- # See the License for the specific language governing permissions and
- # limitations under the License.
+# Adapted from https://github.com/snyk-labs/iac-to-cloud-example-custom-rules
+# Original License: Apache-2.0 (see LICENSE).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-package rules.APPROVED_AMIS
+package vulnetix.rules.snyk_approved_amis
 
-import data.snyk
+import rego.v1
 
-input_type := "tf"
+import data.vulnetix.snyk_labs.helpers
 
 metadata := {
-	"id": "APPROVED-AMIS",
-	"title": "EC2 instance is using an unapproved AMI",
+	"id": "SNYK-LABS-AMI-001",
+	"name": "EC2 instance is using an unapproved AMI",
+	"description": "Example rule: each `aws_instance` AMI must be in an allowlist. Fork and tailor the `_approved_amis` set for your environment.",
+	"help_uri": "https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/AMIs.html",
+	"languages": ["terraform"],
 	"severity": "high",
-	"description": "We maintain a list of approved AMIs that fit our security and compliance needs. All DemoCorp EC2 instances must use one of these AMIs.",
-	"product": ["iac", "cloud"],
-	"platform": ["aws"],
+	"level": "error",
+	"kind": "iac",
+	"cwe": [1357],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["aws", "ec2", "ami", "terraform"],
 }
 
-approved_amis := {
-	# us-east-1
+_approved_amis := {
 	"ami-00c39f71452c08778",
 	"ami-02f97949d306b597a",
-	# us-east-2
 	"ami-04581fbf744a7d11f",
 	"ami-0533def491c57d991",
 }
 
-test_approved_amis {
-	approved_amis["ami-0533def491c57d991"]
-}
-
-instances := snyk.resources("aws_instance")
-
-deny[info] {
-	instance := instances[_]
-	not approved_amis[instance.ami]
-	info := {"resource": instance}
-}
-
-resources[info] {
-	instance := instances[_]
-	info := {"resource": instance}
+findings contains finding if {
+	some path, content in input.file_contents
+	helpers.is_tf(path)
+	some block in helpers.resource_blocks(content, "aws_instance")
+	ami_match := regex.find_n(`ami\s*=\s*"([^"]+)"`, block, 1)
+	count(ami_match) > 0
+	ami := trim(regex.replace(ami_match[0], `ami\s*=\s*"|"`, ""), `"`)
+	not _approved_amis[ami]
+	offset := indexof(content, block)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("aws_instance uses unapproved AMI %q.", [ami]),
+		"artifact_uri": path,
+		"severity": "high",
+		"level": "error",
+		"start_line": helpers.line_of(content, offset),
+		"snippet": ami_match[0],
+	}
 }

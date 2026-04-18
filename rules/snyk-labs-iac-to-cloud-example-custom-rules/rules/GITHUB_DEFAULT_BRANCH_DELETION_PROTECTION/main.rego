@@ -1,53 +1,54 @@
- # © 2023 Snyk Limited
- #
- # Licensed under the Apache License, Version 2.0 (the "License");
- # you may not use this file except in compliance with the License.
- # You may obtain a copy of the License at
- #
- #     http://www.apache.org/licenses/LICENSE-2.0
- #
- # Unless required by applicable law or agreed to in writing, software
- # distributed under the License is distributed on an "AS IS" BASIS,
- # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- # See the License for the specific language governing permissions and
- # limitations under the License.
+# Adapted from https://github.com/snyk-labs/iac-to-cloud-example-custom-rules
+# Original License: Apache-2.0 (see LICENSE).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-package rules.GITHUB_DEFAULT_BRANCH_DELETION_PROTECTION
+package vulnetix.rules.snyk_github_branch_protection
 
-import data.snyk
+import rego.v1
 
-resource_type := "MULTIPLE"
-
-input_type := "tf"
+import data.vulnetix.snyk_labs.helpers
 
 metadata := {
-	"id": "GITHUB-DEFAULT-BRANCH-DELETION-PROTECTION",
-	"title": "Default branch deletion protection not enabled",
+	"id": "SNYK-LABS-GH-001",
+	"name": "GitHub default branch deletion protection",
+	"description": "Each `github_repository` should have a companion `github_branch_protection` with `allows_deletions = false`.",
+	"help_uri": "https://registry.terraform.io/providers/integrations/github/latest/docs/resources/branch_protection",
+	"languages": ["terraform"],
 	"severity": "high",
-	"description": "The history of the default branch is not protected against deletion for this repository.",
-	"product": ["iac"],
+	"level": "error",
+	"kind": "iac",
+	"cwe": [284],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["github", "branch-protection", "terraform"],
 }
 
-repos := snyk.resources("github_repository")
-
-is_valid(repo) {
-	branch_protection := snyk.relates(repo, "github_repository.branch_protection")[_]
-	not branch_protection.allows_deletions
+findings contains finding if {
+	some path, content in input.file_contents
+	helpers.is_tf(path)
+	some block in helpers.resource_blocks(content, "github_repository")
+	repo_name := helpers.resource_name(block)
+	# Search the whole file content (and any other file) for a branch_protection that references this repo.
+	not _has_protection(repo_name)
+	offset := indexof(content, block)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("github_repository %q has no github_branch_protection blocking deletions.", [repo_name]),
+		"artifact_uri": path,
+		"severity": "high",
+		"level": "error",
+		"start_line": helpers.line_of(content, offset),
+		"snippet": sprintf("resource \"github_repository\" %q", [repo_name]),
+	}
 }
 
-deny[info] {
-	repo := repos[_]
-	not is_valid(repo)
-	info := {"resource": repo}
-}
-
-resources[info] {
-	repo := repos[_]
-	info := {"resource": repo}
-}
-
-resources[info] {
-	repo := repos[_]
-	branch_protection := snyk.relates(repo, "github_repository.branch_protection")[_]
-	info := {"primary_resource": repo, "resource": branch_protection}
+_has_protection(repo_name) if {
+	some _, content in input.file_contents
+	blocks := helpers.resource_blocks(content, "github_branch_protection")
+	some block in blocks
+	# Reference like `github_repository.<name>.node_id` or `repository_id = github_repository.<name>.id`
+	regex.match(sprintf(`github_repository\.%s\.`, [regex.split(`\.`, repo_name)[0]]), block)
+	regex.match(`allows_deletions\s*=\s*false`, block)
 }

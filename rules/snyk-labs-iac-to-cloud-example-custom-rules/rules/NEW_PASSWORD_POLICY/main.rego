@@ -1,46 +1,66 @@
- # © 2023 Snyk Limited
- #
- # Licensed under the Apache License, Version 2.0 (the "License");
- # you may not use this file except in compliance with the License.
- # You may obtain a copy of the License at
- #
- #     http://www.apache.org/licenses/LICENSE-2.0
- #
- # Unless required by applicable law or agreed to in writing, software
- # distributed under the License is distributed on an "AS IS" BASIS,
- # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- # See the License for the specific language governing permissions and
- # limitations under the License.
+# Adapted from https://github.com/snyk-labs/iac-to-cloud-example-custom-rules
+# Original License: Apache-2.0 (see LICENSE).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-package rules.NEW_PASSWORD_POLICY
+package vulnetix.rules.snyk_password_policy
 
-import data.snyk
+import rego.v1
 
-input_type := "cloud_scan"
+import data.vulnetix.snyk_labs.helpers
 
 metadata := {
-	"id": "NEW_PASSWORD_POLICY",
+	"id": "SNYK-LABS-IAM-PWD-001",
+	"name": "IAM account password policy minimum length",
+	"description": "`aws_iam_account_password_policy` should declare `minimum_password_length >= 17` (stricter than the CIS recommendation of 14).",
+	"help_uri": "https://docs.aws.amazon.com/IAM/latest/UserGuide/id_credentials_passwords_account-policy.html",
+	"languages": ["terraform"],
 	"severity": "high",
-	"title": "Increase the number of characters in our password policy",
-	"description": "All of our password policies now require a minimum of 17 characters instead of the CIS recommendation of 14 characters",
-	"product": ["cloud"],
+	"level": "error",
+	"kind": "iac",
+	"cwe": [521],
+	"capec": ["CAPEC-16"],
+	"attack_technique": ["T1110"],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["aws", "iam", "password-policy"],
 }
 
-password_pol := snyk.resources("aws_iam_account_password_policy")[_]
+_minimum_length := 17
 
-deny[info] {
-	count(password_pol) < 1 
-	info := {
-		"message": "This account does not contain a password policy",
-		"resource": password_pol
-		}
+findings contains finding if {
+	some path, content in input.file_contents
+	helpers.is_tf(path)
+	some block in helpers.resource_blocks(content, "aws_iam_account_password_policy")
+	length_match := regex.find_n(`minimum_password_length\s*=\s*([0-9]+)`, block, 1)
+	count(length_match) > 0
+	length_str := regex.replace(length_match[0], `\D`, "")
+	to_number(length_str) < _minimum_length
+	offset := indexof(content, block)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("minimum_password_length is %s; must be at least %d.", [length_str, _minimum_length]),
+		"artifact_uri": path,
+		"severity": "high",
+		"level": "error",
+		"start_line": helpers.line_of(content, offset),
+		"snippet": length_match[0],
+	}
 }
 
-deny[info] {
-	password_pol.minimum_password_length < 17
-	info := {"resource": password_pol}
-}
-
-resources[info] {
-	info := {"resource": password_pol}
+# Missing minimum_password_length entirely
+findings contains finding if {
+	some path, content in input.file_contents
+	helpers.is_tf(path)
+	some block in helpers.resource_blocks(content, "aws_iam_account_password_policy")
+	not regex.match(`minimum_password_length\s*=`, block)
+	offset := indexof(content, block)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("aws_iam_account_password_policy declares no minimum_password_length (must be >= %d).", [_minimum_length]),
+		"artifact_uri": path,
+		"severity": "high",
+		"level": "error",
+		"start_line": helpers.line_of(content, offset),
+		"snippet": "aws_iam_account_password_policy",
+	}
 }

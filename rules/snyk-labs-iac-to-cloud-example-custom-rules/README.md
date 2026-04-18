@@ -33,18 +33,13 @@ snyk-labs-iac-to-cloud-example-custom-rules/
 
 ## Input-schema compatibility
 
-Uses the **Snyk IaC custom-rules SDK**: rules declare `input_type := "tf"` and call `snyk.resources(...)` / `snyk.relates(...)` builtins that resolve against local Terraform files via the `snyk iac` CLI. Purely local; no API calls from the rule code itself.
-
-Under Vulnetix CLI (`input.file_contents`), rules load but need an adapter that (a) HCL-parses each `.tf` file from `input.file_contents[path]`, and (b) shims the `snyk.resources` / `snyk.relates` functions against the parsed resource set.
+**Ported** to the Vulnetix `input.file_contents` text-scanning shape. The original `snyk.resources()` / `snyk.relates()` joins have been replaced with regex-based Terraform (HCL) block scanning and cross-file reference matching via `lib/relation_helpers.rego`.
 
 ## Using with the Vulnetix CLI
 
 ```bash
-# Loads cleanly under Vulnetix; needs adapter to emit findings.
+# Loads and emits findings directly under the Vulnetix CLI.
 vulnetix scan --rule Vulnetix/community-rules
-
-# Direct use via the upstream Snyk IaC CLI:
-snyk iac test --rules rules/snyk-labs-iac-to-cloud-example-custom-rules/ ./terraform
 ```
 
 ## Attribution

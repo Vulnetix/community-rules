@@ -1,62 +1,56 @@
- # © 2023 Snyk Limited
- #
- # Licensed under the Apache License, Version 2.0 (the "License");
- # you may not use this file except in compliance with the License.
- # You may obtain a copy of the License at
- #
- #     http://www.apache.org/licenses/LICENSE-2.0
- #
- # Unless required by applicable law or agreed to in writing, software
- # distributed under the License is distributed on an "AS IS" BASIS,
- # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- # See the License for the specific language governing permissions and
- # limitations under the License.
+# Adapted from https://github.com/snyk-labs/iac-to-cloud-example-custom-rules
+# Original License: Apache-2.0 (see LICENSE).
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-package rules.VPC_FLOW_LOG_EXCEPTION
+package vulnetix.rules.snyk_vpc_flow_log
 
-import data.snyk
+import rego.v1
 
-input_type := "tf"
+import data.vulnetix.snyk_labs.helpers
 
 metadata := {
-	"id": "VPC_FLOW_LOG_EXCEPTION",
+	"id": "SNYK-LABS-VPC-001",
+	"name": "VPC must have flow logs unless tagged for exception",
+	"description": "Each `aws_vpc` must be paired with an `aws_flow_log`, unless it carries the exemption tag `name = \"cloudbank-fix\"`.",
+	"help_uri": "https://docs.aws.amazon.com/vpc/latest/userguide/flow-logs.html",
+	"languages": ["terraform"],
 	"severity": "high",
-	"title": "VPC Flow Log Exception based on tag",
-	"description": "All VPCs must have flow logs unless they have a specific key value pair - this rule modifies SNYK-CC-00151 to exclude a vpc based on its tags",
-	"product": [
-		"iac",
-		"cloud",
-	],
+	"level": "error",
+	"kind": "iac",
+	"cwe": [778],
+	"capec": [],
+	"attack_technique": ["T1562.008"],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["aws", "vpc", "flow-logs", "terraform"],
 }
 
-vpcs := snyk.resources("aws_vpc")
-
-acceptable_vpcs(vpc) {
-	vpc.tags.name == "cloudbank-fix"
-}
-
-acceptable_vpcs(vpc) {
-	logs := snyk.relates(vpc, "aws_vpc.aws_flow_log")[_]
-	count(logs) < 0
-}
-
-deny[info] {
-	vpc := vpcs[_]
-	not acceptable_vpcs(vpc)
-
-	info := {"primary_resource": vpc}
-}
-
-resources[info] {
-	vpc := vpcs[_]
-	info := {"primary_resource": vpc}
-}
-
-resources[info] {
-	vpc := vpcs[_]
-	logs := snyk.relates(vpc, "aws_vpc.aws_flow_log")
-	info := {
-		"primary_resource": vpc,
-		"resource": logs[_],
+findings contains finding if {
+	some path, content in input.file_contents
+	helpers.is_tf(path)
+	some block in helpers.resource_blocks(content, "aws_vpc")
+	vpc_name := helpers.resource_name(block)
+	not _is_exempt(block)
+	not _has_flow_log(vpc_name)
+	offset := indexof(content, block)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("aws_vpc %q has no aws_flow_log and no `name=cloudbank-fix` tag exemption.", [vpc_name]),
+		"artifact_uri": path,
+		"severity": "high",
+		"level": "error",
+		"start_line": helpers.line_of(content, offset),
+		"snippet": sprintf("aws_vpc %q", [vpc_name]),
 	}
+}
+
+_is_exempt(block) if {
+	regex.match(`(?s)tags\s*=\s*\{[^}]*\bname\s*=\s*"cloudbank-fix"`, block)
+}
+
+_has_flow_log(vpc_name) if {
+	some _, content in input.file_contents
+	blocks := helpers.resource_blocks(content, "aws_flow_log")
+	some block in blocks
+	regex.match(sprintf(`aws_vpc\.%s\.`, [regex.split(`\.`, vpc_name)[0]]), block)
 }
