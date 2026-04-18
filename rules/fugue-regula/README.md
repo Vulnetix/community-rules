@@ -4,6 +4,7 @@
 - License: Apache-2.0 (preserved as `LICENSE` alongside these files)
 - Commit SHA at import: `259c10a6a746e3c1eb84857d9f548cca463034af`
 - Imported files: 321 `.rego` files from `regula/rego/rules/` and `regula/rego/lib/`, plus `remediation.yaml`
+- **Vulnetix port status:** imported reference only — upstream rules traverse Regula's parsed-HCL resource tree (e.g. `bucket.server_side_encryption_configuration[_].rule[_][_].sse_algorithm`). A faithful port to Vulnetix's `input.file_contents` text-scanning schema would require an HCL/CFN/YAML parser callable from Rego (not available) or an external pre-processing step. For Vulnetix-native Terraform rules using the same compliance concepts, see `rules/cigna-confectionery/` (text-scanning port) as the reference implementation.
 
 ## What these rules cover
 

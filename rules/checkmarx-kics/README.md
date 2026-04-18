@@ -4,6 +4,7 @@
 - License: Apache-2.0 (preserved as `LICENSE`)
 - Commit SHA at import: `a29d6a86bb3633f84a261bc98f948c8b4b1e03ad`
 - Imported files: 1828 `.rego` files from `assets/libraries/` (18) and `assets/queries/` (1810); tests and test fixtures stripped.
+- **Vulnetix port status:** imported reference only — queries consume KICS's normalized `input.document[i]` model produced by the KICS Go scanner, which parses HCL/YAML/JSON/Dockerfile/OpenAPI/Ansible/etc. into a document graph before Rego evaluation. A faithful port to Vulnetix's `input.file_contents` text-scanning schema requires a KICS document-model adapter that is not currently available. Use the upstream `kics scan` binary and ingest its SARIF/JSON output via Vulnetix until an adapter lands. For Vulnetix-native rules built with this collection's schema, see `rules/cigna-confectionery/` (Terraform), `rules/gbrindisi-dockerfile-security/` (Dockerfile), and `rules/kevinswiber-spego/` (OpenAPI).
 
 ## What these rules cover
 

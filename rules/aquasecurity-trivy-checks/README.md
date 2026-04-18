@@ -4,6 +4,7 @@
 - License: MIT (preserved as `LICENSE`)
 - Commit SHA at import: `d7c9302130a9b7e614a5c5d32854f6a08b4bc52e`
 - Imported files: 580 `.rego` files from `checks/` and `lib/` (tests and YAML fixtures stripped)
+- **Vulnetix port status:** imported reference only — rules consume Trivy's typed `schema["cloud"]` / `schema["dockerfile"]` / `schema["kubernetes"]` resource models produced by Trivy's Go loader, which parses HCL/CFN/YAML/Dockerfile sources before Rego evaluation. A faithful port to Vulnetix's `input.file_contents` text-scanning schema requires a parser adapter that is not currently available. Use the upstream `trivy config` binary and ingest its SARIF/JSON output via Vulnetix until an adapter lands. For Vulnetix-native rules built with this collection's schema, see `rules/gbrindisi-dockerfile-security/` (Dockerfile) and `rules/cigna-confectionery/` (Terraform).
 
 ## What these rules cover
 
