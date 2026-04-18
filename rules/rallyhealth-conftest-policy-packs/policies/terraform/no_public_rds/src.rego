@@ -1,25 +1,42 @@
-# @title RDS Instances May Not Be Public
-#
-# RDS instances must block public access.
-# The `publicly_accessible` attribute, if defined, must be set to `false`.
-# The attribute is `false` by default if not specified.
-#
-# See <https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/db_instance#publicly_accessible>.
-package terraform_no_public_rds
+# Adapted from https://github.com/rallyhealth/conftest-policy-packs
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-import data.util_functions
+package vulnetix.rules.rally_no_public_rds
 
-policyID := "AWSSEC-0003"
+import rego.v1
 
-has_public_attribute(resource) {
-	util_functions.has_key(resource, "publicly_accessible")
+import data.vulnetix.rallyhealth.util
+
+metadata := {
+	"id": "AWSSEC-0003",
+	"name": "RDS instances must not be publicly accessible",
+	"description": "`aws_db_instance` must set `publicly_accessible = false` (or omit the attribute entirely).",
+	"help_uri": "https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/db_instance#publicly_accessible",
+	"languages": ["terraform"],
+	"severity": "high",
+	"level": "error",
+	"kind": "iac",
+	"cwe": [284],
+	"capec": [],
+	"attack_technique": ["T1190"],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["aws", "rds", "public-access"],
 }
 
-violation[{"policyId": policyID, "msg": msg}] {
-	resource := input.resource.aws_db_instance
-	a_resource := resource[name]
-	has_public_attribute(a_resource)
-	a_resource.publicly_accessible != false
-
-	msg := sprintf("RDS instances must not be publicly exposed. Set `publicly_accessible` to `false` on aws_db_instance.`%s`", [name])
+findings contains finding if {
+	some path, content in input.file_contents
+	util.is_tf(path)
+	some block in util.resource_blocks(content, "aws_db_instance")
+	regex.match(`(?m)^\s*publicly_accessible\s*=\s*true\s*$`, block)
+	name := util.resource_name(block)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("aws_db_instance %q sets publicly_accessible = true; change it to false.", [name]),
+		"artifact_uri": path,
+		"severity": "high",
+		"level": "error",
+		"start_line": 1,
+		"snippet": name,
+	}
 }

@@ -1,32 +1,64 @@
-# @title Resources Must Use Required Tags
-#
-# AWS resources should be tagged with a minimum set of organization tags for logistical purposes.
-#
-# As this policy is executing on Terraform source code, this policy is reported as a "warn" instead of a "violation."
-# This policy is best evaluated against a Terraform plan, in which case the policy may need to be adapted to correctly parse a resource in a plan file.
-#
-package terraform_required_tags
+# Adapted from https://github.com/rallyhealth/conftest-policy-packs
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-import data.minimum_required_tags
+package vulnetix.rules.rally_required_tags
 
-policyID := "AWSSEC-0005"
+import rego.v1
 
-tags_contain_proper_keys(tags) {
-	keys := {key | tags[key]}
-	minimum_tags_set := {x | x := minimum_required_tags[i]}
-	leftover := minimum_tags_set - keys
+import data.vulnetix.rallyhealth.util
 
-	# If all minimum_tags exist in keys, the leftover set should be empty - equal to a new set()
-	leftover == set()
+metadata := {
+	"id": "AWSSEC-0005",
+	"name": "AWS resources must carry required organizational tags",
+	"description": "Resources that declare a `tags` block must include every key in `_minimum_required_tags`.",
+	"help_uri": "https://registry.terraform.io/providers/hashicorp/aws/latest/docs/guides/resource-tagging",
+	"languages": ["terraform"],
+	"severity": "low",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": [],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["aws", "tagging", "governance"],
 }
 
-warn[msg] {
-	resource := input.resource[resource_type]
-	tags := resource[name].tags
+_minimum_required_tags := [
+	"owner",
+	"environment",
+	"application",
+	"costCenter",
+]
 
-	# Create an array of resources, only if they are missing the minimum tags
-	resources := [sprintf("%v.%v", [resource_type, name]) | not tags_contain_proper_keys(tags)]
+findings contains finding if {
+	some path, content in input.file_contents
+	util.is_tf(path)
+	blocks := regex.find_n(`(?s)resource\s+"[^"]+"\s+"[^"]+"\s*\{(?:[^{}]|\{[^{}]*\})*?\}`, content, -1)
+	some block in blocks
+	_has_tags_block(block)
+	missing := _missing_required(block)
+	count(missing) > 0
+	header := regex.find_n(`resource\s+"[^"]+"\s+"[^"]+"`, block, 1)
+	count(header) > 0
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("%s is missing required tag(s): %v.", [header[0], missing]),
+		"artifact_uri": path,
+		"severity": "low",
+		"level": "warning",
+		"start_line": 1,
+		"snippet": header[0],
+	}
+}
 
-	resources != []
-	msg := sprintf("%s: Invalid tags (missing minimum required tags) for the following resource(s): `%v`. Required tags: `%v`", [policyID, resources, minimum_required_tags])
+_has_tags_block(block) if {
+	regex.match(`(?s)tags\s*=?\s*\{`, block)
+}
+
+_missing_required(block) := missing if {
+	missing := [tag |
+		some tag in _minimum_required_tags
+		not regex.match(sprintf(`(?m)"?%s"?\s*[:=]`, [tag]), block)
+	]
 }

@@ -1,21 +1,30 @@
-# @title Dockerfiles Should Not Use Environment Variables For Sensitive Values
-#
-# Docker images should not pass sensitive values through `ENV` or `ARG` variables.
-# This binds the secret value into a layer of the Docker image and makes the secret
-# recoverable by anyone with access to the final built image through the `docker history` command.
-#
-# Instead, users should use the [Buildkit --secret](https://docs.docker.com/develop/develop-images/build_enhancements/#new-docker-build-secret-information)
-# flag or a multi-stage build.
-#
-# If you use a multi-stage build, an `ARG` or `ENV` with a sensitive value **must** not exist in the final built image.
-package sensitive_keys_in_env_args
+# Adapted from https://github.com/rallyhealth/conftest-policy-packs
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-import data.docker_utils
-import data.excepted_env_keys
+package vulnetix.rules.rally_docker_sensitive_env_args
 
-policyID := "CTNRSEC-0002"
+import rego.v1
 
-sensitive_env_keys = [
+import data.vulnetix.rallyhealth.docker_utils
+
+metadata := {
+	"id": "CTNRSEC-0002",
+	"name": "Dockerfiles must not use ENV/ARG for sensitive values",
+	"description": "ENV/ARG statements whose key contains secret-looking substrings bake secrets into image layers (recoverable via `docker history`).",
+	"help_uri": "https://docs.docker.com/develop/develop-images/build_enhancements/#new-docker-build-secret-information",
+	"languages": ["dockerfile"],
+	"severity": "high",
+	"level": "error",
+	"kind": "iac",
+	"cwe": [522, 798],
+	"capec": [],
+	"attack_technique": ["T1552"],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["dockerfile", "container", "secrets"],
+}
+
+_sensitive_env_keys := [
 	"secret",
 	"apikey",
 	"token",
@@ -26,29 +35,50 @@ sensitive_env_keys = [
 	"credential",
 ]
 
-cmds := ["env", "arg"]
+# Substrings commonly seen in env keys that match sensitive patterns but are
+# not themselves secrets (e.g. a vendor name containing "pwd").
+_excepted_substrings := [
+	"amplitude",
+]
 
-violation[{"policyId": policyID, "msg": msg}] {
-	# Get all indices where cmd is 'from'
-	from_stmt_indices := [index | input[i].Cmd == "from"; index := i]
-	from_index := from_stmt_indices[x]
+findings contains finding if {
+	some path, content in input.file_contents
+	docker_utils.is_dockerfile(path)
+	lines := split(content, "\n")
+	some i
+	line := lines[i]
+	code := docker_utils.strip_comment(line)
+	lc := lower(code)
+	some prefix in ["env ", "arg "]
+	startswith(lc, prefix)
+	rest := trim_space(substring(code, count(prefix), -1))
+	key := _key_of(rest)
+	lkey := lower(key)
+	some sensitive in _sensitive_env_keys
+	contains(lkey, sensitive)
+	not _is_excepted(lkey)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("%s key %q suggests a sensitive value stored in a Docker image layer; use BuildKit --secret or a multi-stage build.", [upper(trim_space(prefix)), key]),
+		"artifact_uri": path,
+		"severity": "high",
+		"level": "error",
+		"start_line": i + 1,
+		"snippet": line,
+	}
+}
 
-	# from_val is an array like ["my.private.registry/ubuntu:20.04", "AS", "builder"]
-	from_val := input[from_index].Value
-	not docker_utils.is_a_multistage_build(input, from_val[0])
+_key_of(rest) := key if {
+	eq_idx := indexof(rest, "=")
+	eq_idx >= 0
+	key := trim_space(substring(rest, 0, eq_idx))
+} else := key if {
+	sp_idx := indexof(rest, " ")
+	sp_idx >= 0
+	key := trim_space(substring(rest, 0, sp_idx))
+} else := trim_space(rest)
 
-	# We only care about evaluating 'env' statements that correspond to the final 'from' statement
-	start := from_stmt_indices[minus(count(from_stmt_indices), 1)]
-	end := count(input)
-	final_from_slice := array.slice(input, start, end)
-
-	cmd := cmds[_]
-	final_from_slice[j].Cmd == cmd
-	val := final_from_slice[j].Value
-	sensitive_key := sensitive_env_keys[_]
-	excepted_key := excepted_env_keys[_]
-	contains(lower(val[0]), sensitive_key)
-	not contains(lower(val[0]), excepted_key)
-
-	msg := sprintf("A %s key [`%s`] was found in this Dockerfile that suggets you are storing a sensitive value in a layer of your Docker image. Dockerfiles should instead use the [Buildkit --secret](https://docs.docker.com/develop/develop-images/build_enhancements/#new-docker-build-secret-information) flag or place the sensitive value in an earlier stage of a multi-stage build.", [upper(cmd), val[0]])
+_is_excepted(lkey) if {
+	some s in _excepted_substrings
+	contains(lkey, s)
 }

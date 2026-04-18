@@ -1,41 +1,67 @@
-# @title NPM Packages Must Be Published Under An Organization Scope
-#
-# NodeJS packages are subject to typosquatting, in which a malicious package is published
-# with a slight misspelling. The aim is to infect end users who misspell your package.
-# While this relies on end user misconfiguration, package owners can still take steps to reduce the viability
-# of such a mistake.
-#
-# This can be avoided by scoping an organizational package beneath an [organization scope](https://docs.npmjs.com/cli/v7/using-npm/scope).
-# Organizations publishing packages to a private registry can use a private organization scope.
-#
-# Scopes are a way of grouping related packages together, and also affect a few things about the way npm treats the package.
-# Each npm user/organization has their own scope, and only you can add packages in your scope.
-# This means you don't have to worry about someone taking your package name ahead of you.
-# Thus it is also a good way to signal official packages for organizations.
-package nodejs_package_must_have_org_scope
+# Adapted from https://github.com/rallyhealth/conftest-policy-packs
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-import data.approved_org_scopes
-import data.packages_functions
-import data.util_functions
+package vulnetix.rules.rally_nodejs_org_scope
 
-policyID := "PKGSEC-0001"
+import rego.v1
 
-has_org_scope(name) {
+import data.vulnetix.rallyhealth.packages_utils
+import data.vulnetix.rallyhealth.util
+
+metadata := {
+	"id": "PKGSEC-0001",
+	"name": "NPM packages must be published under an approved org scope",
+	"description": "`package.json` `name` must start with `@<approved-scope>/` to defend against typosquatting (fork and tailor `_approved_org_scopes`).",
+	"help_uri": "https://docs.npmjs.com/cli/v7/using-npm/scope",
+	"languages": ["json"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "sca",
+	"cwe": [1357],
+	"capec": [],
+	"attack_technique": ["T1195.002"],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["nodejs", "package.json", "supply-chain"],
+}
+
+_approved_org_scopes := [
+	"myorg",
+	"myorg-private",
+]
+
+findings contains finding if {
+	some path, content in input.file_contents
+	packages_utils.is_package_json(path)
+	pkg := packages_utils.parse_pkg(content)
+	name := pkg.name
+	not startswith(name, "@")
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("Package %q is not wrapped under an organization scope (e.g. `@orgscope/mypackage`). Approved scopes: %v.", [name, _approved_org_scopes]),
+		"artifact_uri": path,
+		"severity": "medium",
+		"level": "warning",
+		"start_line": 1,
+		"snippet": name,
+	}
+}
+
+findings contains finding if {
+	some path, content in input.file_contents
+	packages_utils.is_package_json(path)
+	pkg := packages_utils.parse_pkg(content)
+	name := pkg.name
 	startswith(name, "@")
-}
-
-violation[{"policyId": policyID, "msg": msg}] {
-	packages_functions.is_package_json(input)
-	package_name := input.name
-	not has_org_scope(package_name)
-	msg := sprintf("NPM packages must be wrapped beneath an organization scope (e.g. `@orgscope/mypackage`). `%s` does not use any organization scope. Approved scopes are: `%v`.", [package_name, approved_org_scopes])
-}
-
-violation[{"policyId": policyID, "msg": msg}] {
-	packages_functions.is_package_json(input)
-	package_name := input.name
-	has_org_scope(package_name)
-	org_name := substring(package_name, 1, -1)
-	not util_functions.item_startswith_in_list(org_name, approved_org_scopes)
-	msg := sprintf("NodeJS packages must be wrapped beneath an organization scope (e.g. `@orgscope/mypackage`). `%s` does not use an approved organization scope. Approved scopes are: `%v`.", [package_name, approved_org_scopes])
+	org := substring(name, 1, indexof(name, "/"))
+	not util.item_startswith_in_list(org, _approved_org_scopes)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("Package %q does not use an approved organization scope. Approved scopes: %v.", [name, _approved_org_scopes]),
+		"artifact_uri": path,
+		"severity": "medium",
+		"level": "warning",
+		"start_line": 1,
+		"snippet": name,
+	}
 }

@@ -1,21 +1,48 @@
-# @title Encrypt S3 Buckets
-#
-# S3 Buckets must have server-side encryption enabled.
-# See <https://www.terraform.io/docs/backends/types/s3.html#encrypt>.
-#
-# While the security benefits of server-side bucket encryption are nebulous given practical threat scenarios,
-# those wishing to apply such a control may do so with this policy.
-# You may also be required to enforce this as a compliance checkbox.
-package terraform_encrypt_s3_buckets
+# Adapted from https://github.com/rallyhealth/conftest-policy-packs
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-import data.util_functions
+package vulnetix.rules.rally_s3_encrypt
 
-policyID := "AWSSEC-0001"
+import rego.v1
 
-violation[{"policyId": policyID, "msg": msg}] {
-	resource := input.resource.aws_s3_bucket
-	a_resource := resource[name]
-	not util_functions.has_key(a_resource, "server_side_encryption_configuration")
+import data.vulnetix.rallyhealth.util
 
-	msg := sprintf("Missing S3 encryption for `%s`. Required flag: `server_side_encryption_configuration`", [name])
+metadata := {
+	"id": "AWSSEC-0001",
+	"name": "S3 buckets must enable server-side encryption",
+	"description": "`aws_s3_bucket` resources must configure `server_side_encryption_configuration`.",
+	"help_uri": "https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket_server_side_encryption_configuration",
+	"languages": ["terraform"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": [311],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["aws", "s3", "encryption"],
+}
+
+findings contains finding if {
+	some path, content in input.file_contents
+	util.is_tf(path)
+	some block in util.resource_blocks(content, "aws_s3_bucket")
+	not contains(block, "server_side_encryption_configuration")
+	bucket_name := util.resource_name(block)
+	not _has_separate_sse_resource(content, bucket_name)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("aws_s3_bucket %q has no server_side_encryption_configuration.", [bucket_name]),
+		"artifact_uri": path,
+		"severity": "medium",
+		"level": "warning",
+		"start_line": 1,
+		"snippet": bucket_name,
+	}
+}
+
+_has_separate_sse_resource(content, bucket_name) if {
+	some block in util.resource_blocks(content, "aws_s3_bucket_server_side_encryption_configuration")
+	regex.match(sprintf(`aws_s3_bucket\.%s(\.|\b)`, [bucket_name]), block)
 }

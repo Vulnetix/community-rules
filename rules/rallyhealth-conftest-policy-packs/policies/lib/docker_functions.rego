@@ -1,26 +1,46 @@
-package docker_utils
+# Adapted from https://github.com/rallyhealth/conftest-policy-packs
+# Helper package — not a rule (no metadata/findings).
 
-# FROM image is a stage found elsewhere in the Dockerfile
-is_a_multistage_build(baseInput, stage) {
-	baseInput[x].Cmd == "from"
-	val := baseInput[x].Value
+package vulnetix.rallyhealth.docker_utils
 
-	# Last position in FROM declaration is the name for this stage
-	stageName := val[minus(count(val), 1)]
+import rego.v1
 
-	# As long as the position is not the first and only thing
-	# e.g. FROM image:latest
-	# Looking for FROM image:latest AS myName
-	stageName != val[0]
+is_dockerfile(path) if endswith(lower(path), "/dockerfile")
 
-	# Loop through all such possible multi-stage builds, check if this stage comes from any of them
-	startswith(stageName, stage)
+is_dockerfile(path) if lower(path) == "dockerfile"
+
+is_dockerfile(path) if contains(lower(path), "dockerfile.")
+
+is_dockerfile(path) if endswith(lower(path), ".dockerfile")
+
+strip_comment(line) := trimmed if {
+	idx := indexof(line, "#")
+	idx >= 0
+	trimmed := trim_space(substring(line, 0, idx))
+} else := trim_space(line)
+
+# Collect all FROM image values (first token after FROM) from a Dockerfile.
+from_images(content) := imgs if {
+	lines := split(content, "\n")
+	imgs := [img |
+		some i
+		line := lines[i]
+		code := strip_comment(line)
+		startswith(lower(code), "from ")
+		rest := trim_space(substring(code, 5, -1))
+		tokens := split(rest, " ")
+		count(tokens) > 0
+		img := tokens[0]
+	]
 }
 
-is_a_variable(val) {
-	startswith(val[0], "$")
-}
-
-from_scratch(base) {
-	base == "scratch"
+# Collect stage names (AS <name>) declared in a Dockerfile.
+stage_names(content) := names if {
+	matches := regex.find_n(`(?i)FROM\s+\S+\s+AS\s+(\S+)`, content, -1)
+	names := [n |
+		some m in matches
+		parts := regex.find_n(`(?i)AS\s+(\S+)`, m, 1)
+		count(parts) > 0
+		n := trim_space(regex.replace(parts[0], `(?i)AS\s+`, ""))
+	]
 }
