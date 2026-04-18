@@ -30,21 +30,13 @@ hackersifu-example-opa-security-policies/
 
 ## Input-schema compatibility
 
-- Terraform rules read `input.planned_values.root_module.resources` — a **local Terraform plan JSON** (`terraform show -json plan.out`).
-- CloudFormation rule reads `input.Resources[...]` — a **local CloudFormation template** (JSON or YAML parsed to JSON).
-
-Both inputs are local files. Under Vulnetix CLI (`input.file_contents`), rules load but need an adapter to parse each file from `input.file_contents[path]`.
+**Ported** to the Vulnetix `input.file_contents` text-scanning shape. The Terraform rules scan `*.tf` source files (HCL), and the CloudFormation rule scans JSON/YAML template files for `AWS::EC2::SecurityGroup` resources.
 
 ## Using with the Vulnetix CLI
 
 ```bash
-# Loads cleanly under Vulnetix; needs adapter to emit findings.
+# Loads and emits findings directly under the Vulnetix CLI.
 vulnetix scan --rule Vulnetix/community-rules
-
-# Direct use via OPA:
-opa eval --input plan.json \
-         --data rules/hackersifu-example-opa-security-policies/ \
-         'data.opa_policies.allow'
 ```
 
 ## Attribution
