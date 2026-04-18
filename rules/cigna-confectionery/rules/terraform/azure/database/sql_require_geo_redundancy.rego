@@ -1,36 +1,44 @@
-# SQL Require Geo Redundancy: Deny SQL server resources that do not utilize geo-redundancy with failover groups
-# This rule denies SQL server resources from being created that do not utilize geo-redundancy with a failover group and SQL servers at different locations
-package rules.sql_require_geo_redundancy
+# Adapted from https://github.com/cigna/confectionery
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-import data.fugue
+package vulnetix.rules.cigna_tf_az_db_04
 
-resource_type = "MULTIPLE"
+import rego.v1
 
-sql_dbs = fugue.resources("azurerm_sql_server")
+import data.vulnetix.cigna.tf
 
-sql_failover_groups = fugue.resources("azurerm_sql_failover_group")
-
-# Checks if there exists a SQL Server failover group that uses this SQL server as the PRIMARY server
-has_geo_redundant_failover_group(resource) {
-	some i
-	sql_failover_groups[i].server_name == resource.name
-	failover_server := sql_dbs[sql_failover_groups[i].partner_servers[_].id[_]]
-	failover_server.location != resource.location
+metadata := {
+	"id": "CIGNA-TF-AZ-DB-04",
+	"name": "SQL servers must be part of a geo-redundant failover group",
+	"description": "Each azurerm_sql_server must be referenced by an azurerm_sql_failover_group.",
+	"help_uri": "https://github.com/cigna/confectionery/tree/main/rules/terraform/azure/database",
+	"languages": ["terraform", "hcl"],
+	"severity": "low",
+	"level": "note",
+	"kind": "iac",
+	"cwe": ["CWE-1104"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "azure", "sql", "availability"],
 }
 
-# Checks if there exists a SQL Server failover group that uses this SQL server as the SECONDARY server
-has_geo_redundant_failover_group(resource) {
-	sql_failover_groups[_].partner_servers[_].id[_] == resource.id
+findings contains finding if {
+	some r in tf.resources("azurerm_sql_server")
+	not _has_failover_group(r.name)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("SQL server %q has no azurerm_sql_failover_group referencing it.", [r.name]),
+		"artifact_uri": r.path,
+		"severity": "low",
+		"level": "note",
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }
 
-policy[p] {
-	resource = sql_dbs[_]
-	has_geo_redundant_failover_group(resource)
-	p = fugue.allow_resource(resource)
-}
-
-policy[p] {
-	resource = sql_dbs[_]
-	not has_geo_redundant_failover_group(resource)
-	p = fugue.deny_resource_with_message(resource, "SQL server resources must utilize geo-redundancy with a failover group where the failover SQL server is in a different location.")
+_has_failover_group(server_name) if {
+	some fg in tf.resources("azurerm_sql_failover_group")
+	regex.match(sprintf(`azurerm_sql_server\.%s\b`, [server_name]), fg.block)
 }

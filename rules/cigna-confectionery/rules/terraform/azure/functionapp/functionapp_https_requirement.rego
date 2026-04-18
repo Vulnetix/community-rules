@@ -1,27 +1,39 @@
-# Functionapp HTTPS Requirement: Deny functionapp resources that do not require HTTPS
-# This rule denies functionapp resources from being created that do not require client connections to function endpoints to leverage HTTPS
-# https://docs.microsoft.com/en-us/azure/azure-functions/security-concepts
-package rules.functionapp_https_requirement
+# Adapted from https://github.com/cigna/confectionery
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-import data.fugue
+package vulnetix.rules.cigna_tf_az_fa_01
 
-resource_type = "MULTIPLE"
+import rego.v1
 
-functionapp = fugue.resources("azurerm_function_app")
+import data.vulnetix.cigna.tf
 
-# Ensures a given functionapp requires HTTPS connections
-requires_https(resource) {
-	resource.https_only = true
+metadata := {
+	"id": "CIGNA-TF-AZ-FA-01",
+	"name": "Function Apps must require HTTPS",
+	"description": "azurerm_function_app must set https_only = true.",
+	"help_uri": "https://github.com/cigna/confectionery/tree/main/rules/terraform/azure/functionapp",
+	"languages": ["terraform", "hcl"],
+	"severity": "high",
+	"level": "error",
+	"kind": "iac",
+	"cwe": ["CWE-319"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "azure", "function-app", "https"],
 }
 
-policy[p] {
-	resource = functionapp[_]
-	requires_https(resource)
-	p = fugue.allow_resource(resource)
-}
-
-policy[p] {
-	resource = functionapp[_]
-	not requires_https(resource)
-	p = fugue.deny_resource_with_message(resource, "Functionapp resources must require HTTPS function endpoint connections.")
+findings contains finding if {
+	some r in tf.resources("azurerm_function_app")
+	tf.is_not_true(r.block, "https_only")
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("Function App %q does not set https_only = true.", [r.name]),
+		"artifact_uri": r.path,
+		"severity": "high",
+		"level": "error",
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }

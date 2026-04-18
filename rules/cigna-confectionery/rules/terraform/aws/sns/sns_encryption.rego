@@ -1,36 +1,39 @@
-# SNS Encryption: Deny SNS topics that are not server-side encrypted
-# This rule denies SNS topics that are not encrypted by validating server side encryption is enabled
-package rules.sns_encryption
+# Adapted from https://github.com/cigna/confectionery
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-# Advanced rules typically use functions from the `fugue` library.
-import data.fugue
+package vulnetix.rules.cigna_tf_aws_sns_01
 
-# We mark an advanced rule by setting `resource_type` to `MULTIPLE`.
-resource_type = "MULTIPLE"
+import rego.v1
 
-# `fugue.resources` is a function that allows querying for resources of a
-# specific type.
-# This will validate all aws_sns_topic resources
-aws_sns_topic = fugue.resources("aws_sns_topic")
+import data.vulnetix.cigna.tf
 
-# Auxiliary function.
-# sns encryption is enabled if KmsMasterKeyId exists
-is_not_null(resource) {
-	not resource.kms_master_key_id == null
+metadata := {
+	"id": "CIGNA-TF-AWS-SNS-01",
+	"name": "SNS topics must configure server-side encryption",
+	"description": "aws_sns_topic must set kms_master_key_id.",
+	"help_uri": "https://github.com/cigna/confectionery/tree/main/rules/terraform/aws/sns",
+	"languages": ["terraform", "hcl"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-311"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "aws", "sns", "encryption"],
 }
 
-# Regula expects advanced rules to contain a `policy` rule that holds a set
-# of _judgements_.
-# Resource is Valid if KmsMasterKeyId is not null
-policy[p] {
-	resource = aws_sns_topic[_]
-	is_not_null(resource)
-	p = fugue.allow_resource(resource)
-}
-
-# Resource is Invalid if KmsMasterKeyId is null
-policy[p] {
-	resource = aws_sns_topic[_]
-	not is_not_null(resource)
-	p = fugue.deny_resource_with_message(resource, "SNS topic encryption should be enabled.")
+findings contains finding if {
+	some r in tf.resources("aws_sns_topic")
+	not tf.has_key(r.block, "kms_master_key_id")
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("SNS topic %q has no kms_master_key_id.", [r.name]),
+		"artifact_uri": r.path,
+		"severity": "medium",
+		"level": "warning",
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }

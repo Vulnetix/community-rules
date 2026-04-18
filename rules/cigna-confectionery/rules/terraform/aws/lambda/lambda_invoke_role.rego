@@ -1,57 +1,52 @@
-package rules.lambda_invoke_role
+# Adapted from https://github.com/cigna/confectionery
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-# Advanced rules typically use functions from the `fugue` library.
-import data.fugue
+package vulnetix.rules.cigna_tf_aws_lambda_01
 
-# We mark an advanced rule by setting `resource_type` to `MULTIPLE`.
-resource_type = "MULTIPLE"
+import rego.v1
 
-# `fugue.resources` is a function that allows querying for resources of a
-# specific type.  In our case, we are just going to ask for the Lambda functions
-# again.
-aws_lambda_function = fugue.resources("aws_lambda_function")
+import data.vulnetix.cigna.tf
 
-aws_iam_role = fugue.resources("aws_iam_role")
-
-is_invalid(resource) {
-	iam_role = aws_iam_role[_]
-	resource.role == iam_role.id
-	is_invoke_policy(iam_role)
+metadata := {
+	"id": "CIGNA-TF-AWS-LAMBDA-01",
+	"name": "Lambda functions must not reference a role that grants lambda:InvokeLambda",
+	"description": "Detects aws_lambda_function referencing an aws_iam_role whose assume_role_policy allows lambda.amazonaws.com to call lambda:InvokeLambda.",
+	"help_uri": "https://github.com/cigna/confectionery/tree/main/rules/terraform/aws/lambda",
+	"languages": ["terraform", "hcl"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-732"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "aws", "lambda", "iam"],
 }
 
-is_invoke_policy(role) {
-	startswith(role.assume_role_policy, "{")
-	json.unmarshal(role.assume_role_policy, doc)
-	statements = as_array(doc.Statement)
-	statement = statements[_]
-
-	statement.Effect == "Allow"
-
-	principals = as_array(statement.Principal)
-	principal = principals[_]
-	principal.Service == "lambda.amazonaws.com"
-
-	actions = as_array(statement.Action)
-	action = actions[_]
-	action == "lambda:InvokeLambda"
+findings contains finding if {
+	some fn in tf.resources("aws_lambda_function")
+	role_ref := tf.string_attr(fn.block, "role")
+	some role in tf.resources("aws_iam_role")
+	contains(role_ref, role.name)
+	_is_invoke_policy(role.block)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("Lambda function %q uses role %q which allows lambda:InvokeLambda.", [fn.name, role.name]),
+		"artifact_uri": fn.path,
+		"severity": "medium",
+		"level": "warning",
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [fn.type, fn.name]),
+	}
 }
 
-# Regula expects advanced rules to contain a `policy` rule that holds a set
-# of _judgements_.
-policy[p] {
-	resource = aws_lambda_function[_]
-	not is_invalid(resource)
-	p = fugue.allow_resource(resource)
+_is_invoke_policy(block) if {
+	regex.match(`"Service"\s*:\s*"lambda\.amazonaws\.com"`, block)
+	regex.match(`"Action"\s*:\s*"lambda:InvokeLambda"`, block)
 }
 
-policy[p] {
-	resource = aws_lambda_function[_]
-	is_invalid(resource)
-	p = fugue.deny_resource_with_message(resource, "Lambda functions should not have an iam role that can invoke lambdas.")
-}
-
-as_array(x) = [x] {
-	not is_array(x)
-} else = x {
-	true
+_is_invoke_policy(block) if {
+	regex.match(`Service\s*=\s*"lambda\.amazonaws\.com"`, block)
+	regex.match(`Action\s*=\s*"lambda:InvokeLambda"`, block)
 }

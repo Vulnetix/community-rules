@@ -1,22 +1,38 @@
-package rules.public_ip
+# Adapted from https://github.com/cigna/confectionery
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-import data.fugue
+package vulnetix.rules.cigna_tf_az_pip_01
 
-resource_type = "MULTIPLE"
+import rego.v1
 
-azurerm_public_ip = fugue.resources("azurerm_public_ip")
+import data.vulnetix.cigna.tf
 
-# Regula expects advanced rules to contain a `policy` rule that holds a set
-# of _judgements_.
-
-policy[p] {
-	resource = azurerm_public_ip[_]
-	not resource
-	p = fugue.allow_resource(resource)
+metadata := {
+	"id": "CIGNA-TF-AZ-PIP-01",
+	"name": "Public IPs must not be created",
+	"description": "azurerm_public_ip is disallowed by policy.",
+	"help_uri": "https://github.com/cigna/confectionery/tree/main/rules/terraform/azure/public-ip",
+	"languages": ["terraform", "hcl"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-284"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "azure", "public-ip", "network"],
 }
 
-policy[p] {
-	resource = azurerm_public_ip[_]
-	resource
-	p = fugue.deny_resource_with_message(resource, "Deny all creation of public IP addresses.")
+findings contains finding if {
+	some r in tf.resources("azurerm_public_ip")
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("Public IP %q is not permitted.", [r.name]),
+		"artifact_uri": r.path,
+		"severity": "medium",
+		"level": "warning",
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }

@@ -1,26 +1,39 @@
-# Log Analytics Disable Internet Queries: Deny log analytics workspace resources that do not disable internet queries
-# This rule denies Log Analytics Workspace resources from being created that do not disable internet queries
-package rules.log_analytics_disable_internet_queries
+# Adapted from https://github.com/cigna/confectionery
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-import data.fugue
+package vulnetix.rules.cigna_tf_az_la_01
 
-resource_type = "MULTIPLE"
+import rego.v1
 
-workspaces = fugue.resources("azurerm_log_analytics_workspace")
+import data.vulnetix.cigna.tf
 
-# Ensures a given log anayltics workspace disabled internet queries
-disables_internet_queries(resource) {
-	resource.internet_query_enabled == false
+metadata := {
+	"id": "CIGNA-TF-AZ-LA-01",
+	"name": "Log Analytics Workspaces must disable internet queries",
+	"description": "azurerm_log_analytics_workspace must set internet_query_enabled = false.",
+	"help_uri": "https://github.com/cigna/confectionery/tree/main/rules/terraform/azure/log-analytics",
+	"languages": ["terraform", "hcl"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-284"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "azure", "log-analytics", "network"],
 }
 
-policy[p] {
-	resource = workspaces[_]
-	disables_internet_queries(resource)
-	p = fugue.allow_resource(resource)
-}
-
-policy[p] {
-	resource = workspaces[_]
-	not disables_internet_queries(resource)
-	p = fugue.deny_resource_with_message(resource, "Log Analytics Workspaces must disable Internet queries by setting internet_query_enabled to false.")
+findings contains finding if {
+	some r in tf.resources("azurerm_log_analytics_workspace")
+	tf.is_not_false(r.block, "internet_query_enabled")
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("Log Analytics Workspace %q does not set internet_query_enabled = false.", [r.name]),
+		"artifact_uri": r.path,
+		"severity": "medium",
+		"level": "warning",
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }

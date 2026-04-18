@@ -1,28 +1,39 @@
-package rules.application_gateway_waf_enabled
+# Adapted from https://github.com/cigna/confectionery
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-import data.fugue
+package vulnetix.rules.cigna_tf_az_agw_01
 
-resource_type = "MULTIPLE"
+import rego.v1
 
-azurerm_application_gateway = fugue.resources("azurerm_application_gateway")
+import data.vulnetix.cigna.tf
 
-# Auxiliary function checking if web application firewall policy is enabled on application gateway
-
-valid(resource) {
-	resource.firewall_policy_id != null
+metadata := {
+	"id": "CIGNA-TF-AZ-AGW-01",
+	"name": "Application Gateway must have an attached WAF policy",
+	"description": "azurerm_application_gateway must set firewall_policy_id.",
+	"help_uri": "https://github.com/cigna/confectionery/tree/main/rules/terraform/azure/app-gateway",
+	"languages": ["terraform", "hcl"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-284"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "azure", "app-gateway", "waf"],
 }
 
-# Regula expects advanced rules to contain a `policy` rule that holds a set
-# of _judgements_.
-
-policy[p] {
-	resource = azurerm_application_gateway[_]
-	valid(resource)
-	p = fugue.allow_resource(resource)
-}
-
-policy[p] {
-	resource = azurerm_application_gateway[_]
-	not valid(resource)
-	p = fugue.deny_resource_with_message(resource, "Application gateway should have an attached web application firewall policy.")
+findings contains finding if {
+	some r in tf.resources("azurerm_application_gateway")
+	not tf.has_key(r.block, "firewall_policy_id")
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("Application Gateway %q has no firewall_policy_id.", [r.name]),
+		"artifact_uri": r.path,
+		"severity": "medium",
+		"level": "warning",
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }

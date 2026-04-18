@@ -1,26 +1,39 @@
-# Redis Cache Restrict Public Access: Deny Redis Cache resources that do not restrict public network access
-# This rule denies Redis Cache resources from being created that do not configure public network access enabled to false
-package rules.redis_cache_restrict_public_access
+# Adapted from https://github.com/cigna/confectionery
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-import data.fugue
+package vulnetix.rules.cigna_tf_az_redis_02
 
-resource_type = "MULTIPLE"
+import rego.v1
 
-redis_caches = fugue.resources("azurerm_redis_cache")
+import data.vulnetix.cigna.tf
 
-# Ensures a given redis cache does not allow public network access
-disables_public_network_access(resource) {
-	resource.public_network_access_enabled == false
+metadata := {
+	"id": "CIGNA-TF-AZ-REDIS-02",
+	"name": "Redis Cache must disable public network access",
+	"description": "azurerm_redis_cache must set public_network_access_enabled = false.",
+	"help_uri": "https://github.com/cigna/confectionery/tree/main/rules/terraform/azure/redis-cache",
+	"languages": ["terraform", "hcl"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-284"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "azure", "redis", "network"],
 }
 
-policy[p] {
-	resource = redis_caches[_]
-	disables_public_network_access(resource)
-	p = fugue.allow_resource(resource)
-}
-
-policy[p] {
-	resource = redis_caches[_]
-	not disables_public_network_access(resource)
-	p = fugue.deny_resource_with_message(resource, "Redis Cache resources must restrict public network access by setting public_network_access_enabled to false.")
+findings contains finding if {
+	some r in tf.resources("azurerm_redis_cache")
+	tf.is_not_false(r.block, "public_network_access_enabled")
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("Redis Cache %q does not set public_network_access_enabled = false.", [r.name]),
+		"artifact_uri": r.path,
+		"severity": "medium",
+		"level": "warning",
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }

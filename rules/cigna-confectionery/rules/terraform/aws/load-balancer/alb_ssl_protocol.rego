@@ -1,23 +1,30 @@
-#ALB SSL Protocol: Deny Application Load Balancers that have an attached Listener that is not using encryption or proper encryption configurations
-#ALB Listeners must have: HTTPs enabled, a valid certificate arn, and is using an AWS recommended SSL policy.
-package rules.alb_ssl_configuration
+# Adapted from https://github.com/cigna/confectionery
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-# Advanced rules typically use functions from the `fugue` library.
-import data.fugue
+package vulnetix.rules.cigna_tf_aws_elb_02
 
-# We mark an advanced rule by setting `resource_type` to `MULTIPLE`.
-resource_type = "MULTIPLE"
+import rego.v1
 
-# `fugue.resources` is a function that allows querying for resources of a
-# specific type.  In our case, we are just going to ask for the EBS volumes
-# again.
+import data.vulnetix.cigna.tf
 
-elb_listener_resource = fugue.resources("aws_lb_listener")
+metadata := {
+	"id": "CIGNA-TF-AWS-ELB-02",
+	"name": "ALB listeners must use HTTPS with a recommended SSL policy",
+	"description": "aws_lb_listener on application load balancers must set protocol = HTTPS, provide a certificate_arn, and use an approved ssl_policy.",
+	"help_uri": "https://github.com/cigna/confectionery/tree/main/rules/terraform/aws/load-balancer",
+	"languages": ["terraform", "hcl"],
+	"severity": "high",
+	"level": "error",
+	"kind": "iac",
+	"cwe": ["CWE-326"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "aws", "elb", "tls"],
+}
 
-elb_load_balancer_resource = fugue.resources("aws_lb")
-
-#SSL Protocols that are allowed. Only protool not inlcuded in the list is: ELBSecurityPolicy-TLS-1-0-2015-04 per AWS recommendation
-allowed_security_policies = {
+_allowed_policies := {
 	"ELBSecurityPolicy-2016-08",
 	"ELBSecurityPolicy-TLS-1-1-2017-01",
 	"ELBSecurityPolicy-TLS-1-2-2017-01",
@@ -29,65 +36,34 @@ allowed_security_policies = {
 	"ELBSecurityPolicy-2015-05",
 }
 
-#Auxiliary functions.
-#Limit users to the recommended AWS SSL policies for ALBs only, not NLBs
-#NLB Check
-
-is_ssl_properly_configured(elb_listener_resource) {
-	#anywhere loadbalancer arn = address of resource
-	elb_listener_resource.load_balancer_arn == elb_load_balancer_resource[x].arn
-	elb_load_balancer_resource[x].load_balancer_type == "application"
-
-	# HTTPS must be enabled, HTTP is not allowed
-	elb_listener_resource.protocol == "HTTPS"
-
-	# the certificate arn must not be 'null'
-	not is_null(elb_listener_resource.certificate_arn)
-
-	# lastly, ensure correct security policies are chosen
-	elb_listener_resource.ssl_policy == allowed_security_policies[_]
+findings contains finding if {
+	some r in tf.resources("aws_lb_listener")
+	not _is_properly_configured(r.block)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("ALB listener %q has an invalid HTTPS/SSL configuration.", [r.name]),
+		"artifact_uri": r.path,
+		"severity": "high",
+		"level": "error",
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }
 
-#ALB configuration check
-is_ssl_properly_configured(elb_listener_resource) {
-	#anywhere loadbalancer arn = address of resource
-	elb_listener_resource.load_balancer_arn == elb_load_balancer_resource[x].id
-	elb_load_balancer_resource[x].load_balancer_type == "application"
-
-	# HTTPS must be enabled, HTTP is not allowed
-	elb_listener_resource.protocol == "HTTPS"
-
-	#a certificate arn must be included
-	not is_null(elb_listener_resource.certificate_arn)
-
-	# lastly, ensure correct security policies are chosen
-	elb_listener_resource.ssl_policy == allowed_security_policies[_]
+# Accept NLBs (protocol TCP/UDP/TLS is handled elsewhere).
+_is_properly_configured(block) if {
+	p := tf.string_attr(block, "protocol")
+	p == "TCP"
 }
 
-is_ssl_properly_configured(elb_listener_resource) {
-	#anywhere loadbalancer arn = address of resource
-	elb_listener_resource.load_balancer_arn == elb_load_balancer_resource[x].arn
-	elb_load_balancer_resource[x].load_balancer_type == "network"
+_is_properly_configured(block) if {
+	p := tf.string_attr(block, "protocol")
+	p == "UDP"
 }
 
-is_ssl_properly_configured(elb_listener_resource) {
-	#anywhere loadbalancer arn = address of resource
-	elb_listener_resource.load_balancer_arn == elb_load_balancer_resource[x].id
-	elb_load_balancer_resource[x].load_balancer_type == "network"
-}
-
-# Regula expects advanced rules to contain a `policy` rule that holds a set
-# of _judgements_.
-policy[p] {
-	listener_resource = elb_listener_resource[_]
-
-	is_ssl_properly_configured(listener_resource)
-	p = fugue.allow_resource(listener_resource)
-}
-
-policy[p] {
-	listener_resource = elb_listener_resource[_]
-
-	not is_ssl_properly_configured(listener_resource)
-	p = fugue.deny_resource_with_message(listener_resource, "An improper SSL configuration is being deployed.")
+_is_properly_configured(block) if {
+	tf.string_attr(block, "protocol") == "HTTPS"
+	tf.has_key(block, "certificate_arn")
+	policy := tf.string_attr(block, "ssl_policy")
+	_allowed_policies[policy]
 }

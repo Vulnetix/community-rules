@@ -1,28 +1,39 @@
-package rules.public_storage_account
+# Adapted from https://github.com/cigna/confectionery
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-import data.fugue
+package vulnetix.rules.cigna_tf_az_sa_01
 
-resource_type = "MULTIPLE"
+import rego.v1
 
-azurerm_storage_account = fugue.resources("azurerm_storage_account")
+import data.vulnetix.cigna.tf
 
-# Auxiliary function checking if allow_blob_public_access is true
-
-valid(resource) {
-	resource.allow_blob_public_access == false
+metadata := {
+	"id": "CIGNA-TF-AZ-SA-01",
+	"name": "Storage accounts must disable public blob access",
+	"description": "azurerm_storage_account must set allow_blob_public_access = false.",
+	"help_uri": "https://github.com/cigna/confectionery/tree/main/rules/terraform/azure/storage-account",
+	"languages": ["terraform", "hcl"],
+	"severity": "high",
+	"level": "error",
+	"kind": "iac",
+	"cwe": ["CWE-284"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "azure", "storage-account"],
 }
 
-# Regula expects advanced rules to contain a `policy` rule that holds a set
-# of _judgements_.
-
-policy[p] {
-	resource = azurerm_storage_account[_]
-	valid(resource)
-	p = fugue.allow_resource(resource)
-}
-
-policy[p] {
-	resource = azurerm_storage_account[_]
-	not valid(resource)
-	p = fugue.deny_resource_with_message(resource, "Storage Accounts should not be publicly accessible.")
+findings contains finding if {
+	some r in tf.resources("azurerm_storage_account")
+	tf.is_not_false(r.block, "allow_blob_public_access")
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("Storage account %q does not set allow_blob_public_access = false.", [r.name]),
+		"artifact_uri": r.path,
+		"severity": "high",
+		"level": "error",
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }

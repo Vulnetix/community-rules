@@ -1,50 +1,46 @@
-# Elastic Load Balancers Classic must have TLS (Encryption) enabled
-# Enabling HTTPs with a valid SSL certificate arn will enable TLS on classic load balancers
-# Transport Layer Security can be enabled on an ELB Classic resource by enabling HTTPs with a valid SSL certificate arn
-package rules.elb_classic_tls_enabled
+# Adapted from https://github.com/cigna/confectionery
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-# Advanced rules typically use functions from the `fugue` library.
-import data.fugue
+package vulnetix.rules.cigna_tf_aws_elb_04
 
-# We mark an advanced rule by setting `resource_type` to `MULTIPLE`.
-resource_type = "MULTIPLE"
+import rego.v1
 
-# `fugue.resources` is a function that allows querying for resources of a
-# specific type.  In our case, we are just going to ask for the EBS volumes
-# again.
-elb_resource = fugue.resources("aws_elb")
+import data.vulnetix.cigna.tf
 
-#Auxiliary function.
-#Ensure TLS is enabled
-is_TLS_enabled(resource) {
-	some val
-
-	#Creating an index to loop through the listener values
-	listener_values := resource.listener[val]
-
-	#ensures https is set
-	listener_values.lb_protocol == "https"
-
-	#ensures ssl_certificate_id key exists (its optional)
-	listener_values.ssl_certificate_id
-
-	#ssl_certificate_id contains "arn" when valid	
-	contains(listener_values.ssl_certificate_id, "arn")
+metadata := {
+	"id": "CIGNA-TF-AWS-ELB-04",
+	"name": "Classic ELBs must have TLS (HTTPS listener + certificate) enabled",
+	"description": "aws_elb must declare at least one listener with lb_protocol = https and a ssl_certificate_id ARN.",
+	"help_uri": "https://github.com/cigna/confectionery/tree/main/rules/terraform/aws/load-balancer",
+	"languages": ["terraform", "hcl"],
+	"severity": "high",
+	"level": "error",
+	"kind": "iac",
+	"cwe": ["CWE-319"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "aws", "elb", "tls"],
 }
 
-# Regula expects advanced rules to contain a `policy` rule that holds a set
-# of _judgements_.
-
-#Allow resource if TLS is enabled
-policy[p] {
-	resource = elb_resource[_]
-	is_TLS_enabled(resource)
-	p = fugue.allow_resource(resource)
+findings contains finding if {
+	some r in tf.resources("aws_elb")
+	not _tls_enabled(r.block)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("Classic ELB %q does not enable TLS (HTTPS listener with SSL certificate).", [r.name]),
+		"artifact_uri": r.path,
+		"severity": "high",
+		"level": "error",
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }
 
-#Deny resource if TLS is not enabled
-policy[p] {
-	resource = elb_resource[_]
-	not is_TLS_enabled(resource)
-	p = fugue.deny_resource_with_message(resource, "TLS must be enabled.")
+_tls_enabled(block) if {
+	some sb in tf.sub_blocks(block, "listener")
+	lower(tf.string_attr(sb, "lb_protocol")) == "https"
+	cert := tf.string_attr(sb, "ssl_certificate_id")
+	contains(cert, "arn")
 }

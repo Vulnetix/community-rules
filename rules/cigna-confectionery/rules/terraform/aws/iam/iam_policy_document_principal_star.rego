@@ -1,71 +1,49 @@
-# IAM Policy Document Restricted Principal: Deny IAM Policy Documents that extend permissions to be made publicly accessible
-# This rule denies IAM Policy Documents that extend permissions to be made publicly accessible by validating and ensuring the
-# policy does not grant permissions when a principal attribute is set to a wildcard such as "*"
-package rules.iam_policy_document_principal_star
+# Adapted from https://github.com/cigna/confectionery
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-# Advanced rules typically use functions from the `fugue` library.
-import data.fugue
+package vulnetix.rules.cigna_tf_aws_iam_04
 
-# We mark an advanced rule by setting `resource_type` to `MULTIPLE`.
-resource_type = "MULTIPLE"
+import rego.v1
 
-# Set Resource type to aws_iam_policy_document
-policy_document = fugue.resources("aws_iam_policy_document")
+import data.vulnetix.cigna.tf
 
-# Checking for Principal *
-is_deny_star_principal(a) {
-	a == "*"
+metadata := {
+	"id": "CIGNA-TF-AWS-IAM-04",
+	"name": "aws_iam_policy_document must not grant wildcard principals",
+	"description": "Allow statements whose principals include \"*\" without a condition block are rejected.",
+	"help_uri": "https://github.com/cigna/confectionery/tree/main/rules/terraform/aws/iam",
+	"languages": ["terraform", "hcl"],
+	"severity": "high",
+	"level": "error",
+	"kind": "iac",
+	"cwe": ["CWE-732"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "aws", "iam"],
 }
 
-# Determine if a policy is a "public policy"
-#
-# - Effect: Allow
-# - Principal: "*"
-# - Condition does not exist
-# IAM Policy documents shoud not grant permissions to everyone Principal:"*"
-is_valid(resource) {
-	statement = resource.statement[_]
-	statement.effect == "Allow"
-
-	identifiers = statement.principals[_].identifiers
-	identifier = identifiers[_]
-
-	not is_deny_star_principal(identifier)
+findings contains finding if {
+	some r in tf.data_sources("aws_iam_policy_document")
+	some stmt in tf.sub_blocks(r.block, "statement")
+	tf.string_attr(stmt, "effect") == "Allow"
+	_has_wildcard_principal(stmt)
+	not tf.has_sub_block(stmt, "condition")
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("aws_iam_policy_document %q has an Allow statement with principal \"*\" and no condition.", [r.name]),
+		"artifact_uri": r.path,
+		"severity": "high",
+		"level": "error",
+		"start_line": 1,
+		"snippet": sprintf("data.%s.%s", [r.type, r.name]),
+	}
 }
 
-# IAM Policy Documents shoud not grant permissions to everyone Principal:"*", but excepts conditions(which restricts access to everyone)
-is_valid(resource) {
-	statement = resource.statement[_]
-	statement.effect == "Allow"
-
-	identifiers = statement.principals[_].identifiers
-	identifier = identifiers[_]
-
-	statement.condition[_]
-}
-
-# IAM Policy Documents without a principal are being used as iam policies instead of resource policies and should therefore be ignored for this rule
-is_valid(resource) {
-	statement = resource.statement[_]
-	statement.effect == "Allow"
-
-	statement.principals == []
-}
-
-# Regula expects advanced rules to contain a `policy` rule that holds a set
-# of _judgements_.
-
-# Allows the resource if permissions are not made publicly accessible 
-policy[p] {
-	resource = policy_document[_]
-	is_valid(resource)
-	p = fugue.allow_resource(resource)
-}
-
-# Denies the resource and presents custom message if permissions are made publicly accessible
-# provides custom message of the policy name(resource address) that failed 
-policy[p] {
-	resource = policy_document[_]
-	not is_valid(resource)
-	p = fugue.deny_resource_with_message(resource, "IAM Policy Documents should not grant permissions to everyone with no limiting conditions defined.")
+_has_wildcard_principal(stmt) if {
+	some pb in tf.sub_blocks(stmt, "principals")
+	vals := tf.string_list_attr(pb, "identifiers")
+	some v in vals
+	v == "*"
 }

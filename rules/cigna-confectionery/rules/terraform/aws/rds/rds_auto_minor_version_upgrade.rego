@@ -1,31 +1,39 @@
-package rules.rds_auto_minor_version_upgrade
+# Adapted from https://github.com/cigna/confectionery
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-# Advanced rules typically use functions from the `fugue` library.
-import data.fugue
+package vulnetix.rules.cigna_tf_aws_rds_01
 
-# We mark an advanced rule by setting `resource_type` to `MULTIPLE`.
-resource_type = "MULTIPLE"
+import rego.v1
 
-# `fugue.resources` is a function that allows querying for resources of a
-# specific type.  In our case, we are just going to ask for the EBS volumes
-# again.
-db_instance = fugue.resources("aws_db_instance")
+import data.vulnetix.cigna.tf
 
-# Auxiliary function.
-is_enabled(resource) {
-	resource.auto_minor_version_upgrade == true
+metadata := {
+	"id": "CIGNA-TF-AWS-RDS-01",
+	"name": "RDS DB instances must enable auto minor version upgrades",
+	"description": "aws_db_instance must set auto_minor_version_upgrade = true.",
+	"help_uri": "https://github.com/cigna/confectionery/tree/main/rules/terraform/aws/rds",
+	"languages": ["terraform", "hcl"],
+	"severity": "low",
+	"level": "note",
+	"kind": "iac",
+	"cwe": ["CWE-1104"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "aws", "rds"],
 }
 
-# Regula expects advanced rules to contain a `policy` rule that holds a set
-# of _judgements_.
-policy[p] {
-	resource = db_instance[_]
-	is_enabled(resource)
-	p = fugue.allow_resource(resource)
-}
-
-policy[p] {
-	resource = db_instance[_]
-	not is_enabled(resource)
-	p = fugue.deny_resource_with_message(resource, "auto_minor_version_upgrade should be set to true.")
+findings contains finding if {
+	some r in tf.resources("aws_db_instance")
+	tf.is_not_true(r.block, "auto_minor_version_upgrade")
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("RDS instance %q does not enable auto_minor_version_upgrade.", [r.name]),
+		"artifact_uri": r.path,
+		"severity": "low",
+		"level": "note",
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }

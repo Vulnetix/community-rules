@@ -1,22 +1,38 @@
-package rules.nat_gateway
+# Adapted from https://github.com/cigna/confectionery
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-import data.fugue
+package vulnetix.rules.cigna_tf_az_nat_01
 
-resource_type = "MULTIPLE"
+import rego.v1
 
-azurerm_nat_gateway = fugue.resources("azurerm_nat_gateway")
+import data.vulnetix.cigna.tf
 
-# Regula expects advanced rules to contain a `policy` rule that holds a set
-# of _judgements_.
-
-policy[p] {
-	resource = azurerm_nat_gateway[_]
-	not resource
-	p = fugue.allow_resource(resource)
+metadata := {
+	"id": "CIGNA-TF-AZ-NAT-01",
+	"name": "NAT Gateways must not be created",
+	"description": "azurerm_nat_gateway is disallowed by policy.",
+	"help_uri": "https://github.com/cigna/confectionery/tree/main/rules/terraform/azure/nat-gateway",
+	"languages": ["terraform", "hcl"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-284"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "azure", "nat-gateway", "network"],
 }
 
-policy[p] {
-	resource = azurerm_nat_gateway[_]
-	resource
-	p = fugue.deny_resource_with_message(resource, "Deny all creation of NAT gateways.")
+findings contains finding if {
+	some r in tf.resources("azurerm_nat_gateway")
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("NAT Gateway %q is not permitted.", [r.name]),
+		"artifact_uri": r.path,
+		"severity": "medium",
+		"level": "warning",
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }

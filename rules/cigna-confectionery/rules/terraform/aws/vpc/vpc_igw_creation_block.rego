@@ -1,26 +1,38 @@
-package rules.vpc_igw_creation_block
+# Adapted from https://github.com/cigna/confectionery
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-# Advanced rules typically use functions from the `fugue` library.
-import data.fugue
+package vulnetix.rules.cigna_tf_aws_vpc_02
 
-# We mark an advanced rule by setting `resource_type` to `MULTIPLE`.
-resource_type = "MULTIPLE"
+import rego.v1
 
-# `fugue.resources` is a function that allows querying for resources of a
-# specific type.  In our case, we are just going to ask for the EBS volumes
-# again.
-aws_igw_resource = fugue.resources("aws_internet_gateway")
+import data.vulnetix.cigna.tf
 
-# Regula expects advanced rules to contain a `policy` rule that holds a set
-# of _judgements_.
-policy[p] {
-	resource = aws_igw_resource[_]
-	not resource
-	p = fugue.allow_resource(resource)
+metadata := {
+	"id": "CIGNA-TF-AWS-VPC-02",
+	"name": "Internet Gateways must not be created",
+	"description": "aws_internet_gateway is disallowed by policy (internet egress must be controlled).",
+	"help_uri": "https://github.com/cigna/confectionery/tree/main/rules/terraform/aws/vpc",
+	"languages": ["terraform", "hcl"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-284"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "aws", "vpc", "network"],
 }
 
-policy[p] {
-	resource = aws_igw_resource[_]
-	resource
-	p = fugue.deny_resource_with_message(resource, "Internet Gateways are not allowed to be created.")
+findings contains finding if {
+	some r in tf.resources("aws_internet_gateway")
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("Internet Gateway %q is not permitted.", [r.name]),
+		"artifact_uri": r.path,
+		"severity": "medium",
+		"level": "warning",
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }

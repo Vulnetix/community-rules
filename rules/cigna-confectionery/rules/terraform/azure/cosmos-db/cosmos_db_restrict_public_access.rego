@@ -1,26 +1,39 @@
-# Cosmos DB Restrict Public Access: Deny CosmosDB resources that do not disable public network access
-# This rule denies CosmosDB resources from being created that do not set the public_network_access_enabled attribute to false
-package rules.cosmos_db_restrict_public_access
+# Adapted from https://github.com/cigna/confectionery
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-import data.fugue
+package vulnetix.rules.cigna_tf_az_cosmos_01
 
-resource_type = "MULTIPLE"
+import rego.v1
 
-cosmosdbs = fugue.resources("azurerm_cosmosdb_account")
+import data.vulnetix.cigna.tf
 
-# Ensures a given Cosmos DB disables public network access
-disables_public_network_access(resource) {
-	resource.public_network_access_enabled == false
+metadata := {
+	"id": "CIGNA-TF-AZ-COSMOS-01",
+	"name": "Cosmos DB must disable public network access",
+	"description": "azurerm_cosmosdb_account must set public_network_access_enabled = false.",
+	"help_uri": "https://github.com/cigna/confectionery/tree/main/rules/terraform/azure/cosmos-db",
+	"languages": ["terraform", "hcl"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-284"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "azure", "cosmos-db", "network"],
 }
 
-policy[p] {
-	resource = cosmosdbs[_]
-	disables_public_network_access(resource)
-	p = fugue.allow_resource(resource)
-}
-
-policy[p] {
-	resource = cosmosdbs[_]
-	not disables_public_network_access(resource)
-	p = fugue.deny_resource_with_message(resource, "CosmosDB resources must set public_network_access_enabled to false.")
+findings contains finding if {
+	some r in tf.resources("azurerm_cosmosdb_account")
+	tf.is_not_false(r.block, "public_network_access_enabled")
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("Cosmos DB %q does not set public_network_access_enabled = false.", [r.name]),
+		"artifact_uri": r.path,
+		"severity": "medium",
+		"level": "warning",
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }

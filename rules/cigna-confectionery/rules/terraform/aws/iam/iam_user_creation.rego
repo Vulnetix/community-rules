@@ -1,26 +1,38 @@
-package rules.iam_user_creation
+# Adapted from https://github.com/cigna/confectionery
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-# Advanced rules typically use functions from the `fugue` library.
-import data.fugue
+package vulnetix.rules.cigna_tf_aws_iam_07
 
-# We mark an advanced rule by setting `resource_type` to `MULTIPLE`.
-resource_type = "MULTIPLE"
+import rego.v1
 
-# `fugue.resources` is a function that allows querying for resources of a
-# specific type.  In our case, we are just going to ask for the EBS volumes
-# again.
-aws_iam_user = fugue.resources("aws_iam_user")
+import data.vulnetix.cigna.tf
 
-# Regula expects advanced rules to contain a `policy` rule that holds a set
-# of _judgements_.
-policy[p] {
-	resource = aws_iam_user[_]
-	not resource
-	p = fugue.allow_resource(resource)
+metadata := {
+	"id": "CIGNA-TF-AWS-IAM-07",
+	"name": "IAM users must not be declared in Terraform",
+	"description": "Workloads should use roles and identity federation. aws_iam_user resources are rejected.",
+	"help_uri": "https://github.com/cigna/confectionery/tree/main/rules/terraform/aws/iam",
+	"languages": ["terraform", "hcl"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-798"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "aws", "iam"],
 }
 
-policy[p] {
-	resource = aws_iam_user[_]
-	resource
-	p = fugue.deny_resource_with_message(resource, "IAM Users are not allowed to be created.")
+findings contains finding if {
+	some r in tf.resources("aws_iam_user")
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("aws_iam_user %q should not be created; use roles and federation.", [r.name]),
+		"artifact_uri": r.path,
+		"severity": "medium",
+		"level": "warning",
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }

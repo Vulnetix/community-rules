@@ -1,40 +1,44 @@
-# EKS Control Plane Logging: Deny eks clusters that do not have eks control plane logging enabled
-# This rule denies eks clusters that does not have eks control plane logging enabled 
-# by validating and ensuring that cluster log types are enabled
+# Adapted from https://github.com/cigna/confectionery
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-package rules.eks_controlplane_logging
+package vulnetix.rules.cigna_tf_aws_eks_01
 
-# Advanced rules typically use functions from the `fugue` library.
-import data.fugue
+import rego.v1
 
-# We mark an advanced rule by setting `resource_type` to `MULTIPLE`.
-resource_type = "MULTIPLE"
+import data.vulnetix.cigna.tf
 
-# `fugue.resources` is a function that allows querying for resources of a
-# specific type.  
-
-#Validate all eks clusters
-eks_cluster_logging = fugue.resources("aws_eks_cluster")
-
-# Auxiliary function
-# resource is invalid if enabled_cluster_log_types is null/empty
-is_invalid(resource) {
-	resource.enabled_cluster_log_types == null
+metadata := {
+	"id": "CIGNA-TF-AWS-EKS-01",
+	"name": "EKS clusters must enable control plane logging",
+	"description": "aws_eks_cluster must set enabled_cluster_log_types with at least one log type.",
+	"help_uri": "https://github.com/cigna/confectionery/tree/main/rules/terraform/aws/eks",
+	"languages": ["terraform", "hcl"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-778"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "aws", "eks", "logging"],
 }
 
-# Regula expects advanced rules to contain a `policy` rule that holds a set
-# of _judgements_.
-
-# Eks Clusters is allowed if control plane logging is enabled
-policy[p] {
-	resource = eks_cluster_logging[_]
-	not is_invalid(resource)
-	p = fugue.allow_resource(resource)
+findings contains finding if {
+	some r in tf.resources("aws_eks_cluster")
+	not _has_log_types(r.block)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("EKS cluster %q does not enable enabled_cluster_log_types.", [r.name]),
+		"artifact_uri": r.path,
+		"severity": "medium",
+		"level": "warning",
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }
 
-# Eks Clusters are denied if control plane logging is not enabled
-policy[p] {
-	resource = eks_cluster_logging[_]
-	is_invalid(resource)
-	p = fugue.deny_resource_with_message(resource, "EKS control plane logging must be enabled.")
+_has_log_types(block) if {
+	vals := tf.string_list_attr(block, "enabled_cluster_log_types")
+	count(vals) > 0
 }

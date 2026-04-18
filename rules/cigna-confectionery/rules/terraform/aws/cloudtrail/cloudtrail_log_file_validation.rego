@@ -1,17 +1,39 @@
-# Cloudtrail log file validation: Deny if enable_log_file_validation attribute == false, if attribute == true allow 
-package rules.cloudtrail_log_file_validation
+# Adapted from https://github.com/cigna/confectionery
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-# Simple rule finding aws_cloudtrail resource
-resource_type = "aws_cloudtrail"
+package vulnetix.rules.cigna_tf_aws_ct_02
 
-controls = {
-	"CIS_2-2",
-	"NIST-800-53_AC-2g",
-	"NIST-800-53_AC-6 (9)",
-	"REGULA_R00006",
+import rego.v1
+
+import data.vulnetix.cigna.tf
+
+metadata := {
+	"id": "CIGNA-TF-AWS-CT-02",
+	"name": "CloudTrail must enable log file validation",
+	"description": "aws_cloudtrail must set enable_log_file_validation = true (CIS AWS 2.2).",
+	"help_uri": "https://github.com/cigna/confectionery/tree/main/rules/terraform/aws/cloudtrail",
+	"languages": ["terraform", "hcl"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-354"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "aws", "cloudtrail", "cis"],
 }
 
-deny[msg] {
-	input.enable_log_file_validation == false
-	msg = "Cloudtrails must have log file validation enabled."
+findings contains finding if {
+	some r in tf.resources("aws_cloudtrail")
+	tf.bool_attr(r.block, "enable_log_file_validation") == false
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("CloudTrail %q has enable_log_file_validation disabled.", [r.name]),
+		"artifact_uri": r.path,
+		"severity": "medium",
+		"level": "warning",
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }

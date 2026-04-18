@@ -1,79 +1,42 @@
-# IAM Service Star Policy: Deny Iam policies that use the wildcard "*" attribute  with service actions 
-# This rule denies any type of Iam policy that uses the wildcard attribute with service actions by validating 
-# and ensuring the wildcard is not used and actions are listed.
+# Adapted from https://github.com/cigna/confectionery
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-package rules.iam_service_star
+package vulnetix.rules.cigna_tf_aws_iam_05
 
-import data.fugue
+import rego.v1
 
-resource_type = "MULTIPLE"
+import data.vulnetix.cigna.tf
 
-iam_policy_types = {
-	"aws_iam_policy",
-	"aws_iam_group_policy",
-	"aws_iam_role_policy",
-	"aws_iam_user_policy",
+metadata := {
+	"id": "CIGNA-TF-AWS-IAM-05",
+	"name": "IAM policies must list service actions, not service:* wildcards",
+	"description": "Detects Action values matching <service>:* in policies that allow on Resource=*.",
+	"help_uri": "https://github.com/cigna/confectionery/tree/main/rules/terraform/aws/iam",
+	"languages": ["terraform", "hcl"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-732"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "aws", "iam"],
 }
 
-#Validate all iam policy types
-policies[name] = p {
-	some resource_type
-	iam_policy_types[resource_type]
-	resources = fugue.resources(resource_type)
-	p = resources[name]
-}
+_iam_types := {"aws_iam_policy", "aws_iam_group_policy", "aws_iam_role_policy", "aws_iam_user_policy"}
 
-# All wildcard policies.
-wildcard_policies[name] = p {
-	p = policies[name]
-	is_wildcard_policy(p)
-}
-
-is_deny_star_action(a) {
-	re_match(`[a-zA-Z0-9\-]+:\*$`, a)
-}
-
-# Determine if a policy is a "wildcard policy"
-#
-# - Effect: Allow
-# - Resource: "<service>:*"
-# - Action: "*"
-is_wildcard_policy(p) {
-	startswith(p.policy, "{")
-	json.unmarshal(p.policy, doc)
-	statements = as_array(doc.Statement)
-	statement = statements[_]
-
-	statement.Effect == "Allow"
-
-	resources = as_array(statement.Resource)
-	resource = resources[_]
-	resource == "*"
-
-	actions = as_array(statement.Action)
-	action = actions[_]
-	is_deny_star_action(action)
-}
-
-# Judge policies and wildcard policies.
-# Denies the resource if it is a wildcard policy and actions are not listed 
-policy[p] {
-	single_policy = wildcard_policies[name]
-	p = fugue.deny_resource_with_message(single_policy, "List actions required rather than using <service>:*.")
-}
-
-# Allows the resource if it is not a wildcard policy and actions are listed
-policy[p] {
-	single_policy = policies[name]
-	not wildcard_policies[name]
-	p = fugue.allow_resource(single_policy)
-}
-
-# Utility: turns anything into an array, if it's not an array already.
-as_array(x) = [x] {
-	not is_array(x)
-}
-
-else = x {
-	true
+findings contains finding if {
+	some t in _iam_types
+	some r in tf.resources(t)
+	tf.has_service_star_action(r.block)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("IAM policy %q uses a <service>:* wildcard action.", [r.name]),
+		"artifact_uri": r.path,
+		"severity": "medium",
+		"level": "warning",
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }

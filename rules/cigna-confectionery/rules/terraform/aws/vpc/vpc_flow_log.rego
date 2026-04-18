@@ -1,47 +1,44 @@
-package rules.vpc_flow_log
+# Adapted from https://github.com/cigna/confectionery
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-import data.fugue
+package vulnetix.rules.cigna_tf_aws_vpc_01
 
-resource_type = "MULTIPLE"
+import rego.v1
 
-controls = {
-	"CIS_2-9",
-	"NIST-800-53_AC-4",
-	"NIST-800-53_SC-7a",
-	"NIST-800-53_SI-4a.2",
-	"REGULA_R00003",
+import data.vulnetix.cigna.tf
+
+metadata := {
+	"id": "CIGNA-TF-AWS-VPC-01",
+	"name": "VPCs must have an associated flow log",
+	"description": "Every aws_vpc should have a matching aws_flow_log referencing its vpc_id for traffic visibility.",
+	"help_uri": "https://github.com/cigna/confectionery/tree/main/rules/terraform/aws/vpc",
+	"languages": ["terraform", "hcl"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-778"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "aws", "vpc", "logging"],
 }
 
-# VPC flow logging should be enabled when VPCs are created. AWS VPC Flow Logs provide visibility into network traffic that 
-# traverses the AWS VPC. Users can use the flow logs to detect anomalous traffic or insight during security workflows.
-
-# every flow log in the template
-flow_logs = fugue.resources("aws_flow_log")
-
-# every VPC in the template
-vpcs = fugue.resources("aws_vpc")
-
-# VPC is valid if there is an associated flow log
-is_valid_vpc(vpc) {
-	# Compare arn with vpc_id (Added for golden vpc)
-	arn_array := split(vpc.arn, "/")
-	vpc_id := arn_array[count(arn_array) - 1]
-	vpc_id == flow_logs[_].vpc_id
+findings contains finding if {
+	some r in tf.resources("aws_vpc")
+	not _has_matching_flow_log(r.name)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("VPC %q has no aws_flow_log referencing it.", [r.name]),
+		"artifact_uri": r.path,
+		"severity": "medium",
+		"level": "warning",
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }
 
-is_valid_vpc(vpc) {
-	# Compare vpc id with flow_logs associated vpc id
-	vpc.id == flow_logs[_].vpc_id
-}
-
-policy[p] {
-	resource = vpcs[_]
-	not is_valid_vpc(resource)
-	p = fugue.deny_resource_with_message(resource, "All vpcs must have flow logs enabled.")
-}
-
-policy[p] {
-	resource = vpcs[_]
-	is_valid_vpc(resource)
-	p = fugue.allow_resource(resource)
+_has_matching_flow_log(vpc_name) if {
+	some fl in tf.resources("aws_flow_log")
+	regex.match(sprintf(`vpc_id\s*=\s*aws_vpc\.%s\.id\b`, [vpc_name]), fl.block)
 }

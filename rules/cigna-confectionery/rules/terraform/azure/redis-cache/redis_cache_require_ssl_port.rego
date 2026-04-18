@@ -1,26 +1,39 @@
-# Redis Cache Require SSL Port: Deny Redis Cache resources that allow connections on non-SSL/TLS port 6379
-# This rule denies Redis Cache resources from being created that allow connections on non-SSL/TLS port 6379
-package rules.redis_cache_require_ssl_port
+# Adapted from https://github.com/cigna/confectionery
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-import data.fugue
+package vulnetix.rules.cigna_tf_az_redis_01
 
-resource_type = "MULTIPLE"
+import rego.v1
 
-redis_caches = fugue.resources("azurerm_redis_cache")
+import data.vulnetix.cigna.tf
 
-# Ensures a given redis cache does not allow connections on non-SSL/TLS port 6379
-disables_non_ssl_connections(resource) {
-	resource.enable_non_ssl_port == false
+metadata := {
+	"id": "CIGNA-TF-AZ-REDIS-01",
+	"name": "Redis Cache must disable the non-SSL port",
+	"description": "azurerm_redis_cache must set enable_non_ssl_port = false.",
+	"help_uri": "https://github.com/cigna/confectionery/tree/main/rules/terraform/azure/redis-cache",
+	"languages": ["terraform", "hcl"],
+	"severity": "high",
+	"level": "error",
+	"kind": "iac",
+	"cwe": ["CWE-319"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "azure", "redis", "ssl"],
 }
 
-policy[p] {
-	resource = redis_caches[_]
-	disables_non_ssl_connections(resource)
-	p = fugue.allow_resource(resource)
-}
-
-policy[p] {
-	resource = redis_caches[_]
-	not disables_non_ssl_connections(resource)
-	p = fugue.deny_resource_with_message(resource, "Redis Cache resources must disable non-SSL/TLS port 6379 access by setting enable_non_ssl_port to false.")
+findings contains finding if {
+	some r in tf.resources("azurerm_redis_cache")
+	tf.is_not_false(r.block, "enable_non_ssl_port")
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("Redis Cache %q does not set enable_non_ssl_port = false.", [r.name]),
+		"artifact_uri": r.path,
+		"severity": "high",
+		"level": "error",
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }

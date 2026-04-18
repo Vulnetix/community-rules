@@ -1,79 +1,46 @@
-package rules.security_group_ingress_port_range
+# Adapted from https://github.com/cigna/confectionery
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-import data.fugue
+package vulnetix.rules.cigna_tf_aws_sg_02
 
-resource_type = "MULTIPLE"
+import rego.v1
 
-# Grab security groups from terraform template
-security_group = fugue.resources("aws_security_group")
+import data.vulnetix.cigna.tf
 
-# Security groups are valid if port range is limited
-is_valid_security_group(resource) {
-	ingress = resource.ingress[_]
-
-	# Check ingress protocol is not for all
-	not all_ports(ingress)
+metadata := {
+	"id": "CIGNA-TF-AWS-SG-02",
+	"name": "Security groups must not allow all ports",
+	"description": "aws_security_group ingress must not set protocol = \"-1\" with from_port = 0 and to_port = 0.",
+	"help_uri": "https://github.com/cigna/confectionery/tree/main/rules/terraform/aws/security-group",
+	"languages": ["terraform", "hcl"],
+	"severity": "high",
+	"level": "error",
+	"kind": "iac",
+	"cwe": ["CWE-284"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "aws", "security-group"],
 }
 
-# Security groups are also valid if ingress is not defined
-is_valid_security_group(resource) {
-	not resource.ingress
+findings contains finding if {
+	some r in tf.resources("aws_security_group")
+	some ing in tf.sub_blocks(r.block, "ingress")
+	_all_ports(ing)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("Security group %q has an ingress rule opening all ports (protocol=-1).", [r.name]),
+		"artifact_uri": r.path,
+		"severity": "high",
+		"level": "error",
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }
 
-# Security groups are also valid if ingress is empty
-is_valid_security_group(resource) {
-	resource.ingress == []
-}
-
-all_ports(ingress) {
-	ingress.protocol == "-1"
-	ingress.to_port == 0
-	ingress.from_port == 0
-	ingress.self == false
-}
-
-all_ports(ingress) {
-	ingress.protocol == "-1"
-	ingress.to_port == 0
-	ingress.from_port == 0
-	ingress.self == true
-	count(ingress.cidr_blocks) != 0
-}
-
-all_ports(ingress) {
-	ingress.protocol == "-1"
-	ingress.to_port == 0
-	ingress.from_port == 0
-	ingress.self == true
-	count(ingress.ipv6_cidr_blocks) != 0
-}
-
-all_ports(ingress) {
-	ingress.protocol == "-1"
-	ingress.to_port == 0
-	ingress.from_port == 0
-	ingress.self == true
-	count(ingress.prefix_list_ids) != 0
-}
-
-all_ports(ingress) {
-	ingress.protocol == "-1"
-	ingress.to_port == 0
-	ingress.from_port == 0
-	ingress.self == true
-	count(ingress.security_groups) != 0
-}
-
-# Deny resource if security group does not limit port range
-policy[p] {
-	resource = security_group[_]
-	not is_valid_security_group(resource)
-	p = fugue.deny_resource_with_message(resource, "All security groups must have a limited port range for ingress traffic.")
-}
-
-# Allow resource if security group does limit port range
-policy[p] {
-	resource = security_group[_]
-	is_valid_security_group(resource)
-	p = fugue.allow_resource(resource)
+_all_ports(block) if {
+	tf.string_attr(block, "protocol") == "-1"
+	tf.number_attr(block, "from_port") == 0
+	tf.number_attr(block, "to_port") == 0
 }

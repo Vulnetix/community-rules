@@ -1,26 +1,38 @@
-package rules.vpc_peering_connection
+# Adapted from https://github.com/cigna/confectionery
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-# Advanced rules typically use functions from the `fugue` library.
-import data.fugue
+package vulnetix.rules.cigna_tf_aws_vpc_03
 
-# We mark an advanced rule by setting `resource_type` to `MULTIPLE`.
-resource_type = "MULTIPLE"
+import rego.v1
 
-# `fugue.resources` is a function that allows querying for resources of a
-# specific type.  In our case, we are just going to ask for the EBS volumes
-# again.
-aws_vpc_peering_connection = fugue.resources("aws_vpc_peering_connection")
+import data.vulnetix.cigna.tf
 
-# Regula expects advanced rules to contain a `policy` rule that holds a set
-# of _judgements_.
-policy[p] {
-	resource = aws_vpc_peering_connection[_]
-	not resource
-	p = fugue.allow_resource(resource)
+metadata := {
+	"id": "CIGNA-TF-AWS-VPC-03",
+	"name": "VPC Peering Connections must not be created",
+	"description": "aws_vpc_peering_connection is disallowed by policy.",
+	"help_uri": "https://github.com/cigna/confectionery/tree/main/rules/terraform/aws/vpc",
+	"languages": ["terraform", "hcl"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-284"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "aws", "vpc", "network"],
 }
 
-policy[p] {
-	resource = aws_vpc_peering_connection[_]
-	resource
-	p = fugue.deny_resource_with_message(resource, "VPC Peering Connections are not allowed to be created.")
+findings contains finding if {
+	some r in tf.resources("aws_vpc_peering_connection")
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("VPC Peering Connection %q is not permitted.", [r.name]),
+		"artifact_uri": r.path,
+		"severity": "medium",
+		"level": "warning",
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }

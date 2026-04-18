@@ -1,26 +1,39 @@
-# Web App HTTPS Requirement: Deny Web App resources that do not require HTTPS endpoint connections
-# This rule denies Web App resources from being created that do not require HTTPS protocol for app endpoint access
-package rules.web_app_https_requirement
+# Adapted from https://github.com/cigna/confectionery
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-import data.fugue
+package vulnetix.rules.cigna_tf_az_wa_01
 
-resource_type = "MULTIPLE"
+import rego.v1
 
-web_apps = fugue.resources("azurerm_app_service")
+import data.vulnetix.cigna.tf
 
-# Ensures a given web app requires HTTPS
-requires_https(resource) {
-	resource.https_only == true
+metadata := {
+	"id": "CIGNA-TF-AZ-WA-01",
+	"name": "Web Apps must require HTTPS",
+	"description": "azurerm_app_service must set https_only = true.",
+	"help_uri": "https://github.com/cigna/confectionery/tree/main/rules/terraform/azure/web-app",
+	"languages": ["terraform", "hcl"],
+	"severity": "high",
+	"level": "error",
+	"kind": "iac",
+	"cwe": ["CWE-319"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "azure", "web-app", "https"],
 }
 
-policy[p] {
-	resource = web_apps[_]
-	requires_https(resource)
-	p = fugue.allow_resource(resource)
-}
-
-policy[p] {
-	resource = web_apps[_]
-	not requires_https(resource)
-	p = fugue.deny_resource_with_message(resource, "Web App resources must require HTTPS endpoint connections.")
+findings contains finding if {
+	some r in tf.resources("azurerm_app_service")
+	tf.is_not_true(r.block, "https_only")
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("Web App %q does not set https_only = true.", [r.name]),
+		"artifact_uri": r.path,
+		"severity": "high",
+		"level": "error",
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }

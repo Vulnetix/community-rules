@@ -1,75 +1,42 @@
-# IAM Admin Policy: Deny full administrative permissions
-# This rule denies any type of iam policy that grants full administrative permissions 
-# by validating and ensuring the policy is not a wildcard policy 
-package rules.iam_admin_policy
+# Adapted from https://github.com/cigna/confectionery
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-import data.fugue
+package vulnetix.rules.cigna_tf_aws_iam_01
 
-resource_type = "MULTIPLE"
+import rego.v1
 
-iam_policy_types = {
-	"aws_iam_policy",
-	"aws_iam_group_policy",
-	"aws_iam_role_policy",
-	"aws_iam_user_policy",
+import data.vulnetix.cigna.tf
+
+metadata := {
+	"id": "CIGNA-TF-AWS-IAM-01",
+	"name": "IAM policies must not grant full administrative permissions",
+	"description": "Detects IAM policy statements with Effect=Allow, Action=* and Resource=*.",
+	"help_uri": "https://github.com/cigna/confectionery/tree/main/rules/terraform/aws/iam",
+	"languages": ["terraform", "hcl"],
+	"severity": "high",
+	"level": "error",
+	"kind": "iac",
+	"cwe": ["CWE-250"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "aws", "iam"],
 }
 
-#Validate all iam policy types
-policies[name] = p {
-	some resource_type
-	iam_policy_types[resource_type]
-	resources = fugue.resources(resource_type)
-	p = resources[name]
-}
+_iam_types := {"aws_iam_policy", "aws_iam_group_policy", "aws_iam_role_policy", "aws_iam_user_policy"}
 
-# All wildcard policies.
-wildcard_policies[name] = p {
-	p = policies[name]
-	is_wildcard_policy(p)
-}
-
-# Determine if a policy is a "wildcard policy".  A wildcard policy is defined as
-# a policy having a statement that has all of:
-#
-# - Effect: Allow
-# - Resource: "*"
-# - Action: "*"
-is_wildcard_policy(p) {
-	startswith(p.policy, "{")
-	json.unmarshal(p.policy, doc)
-	statements = as_array(doc.Statement)
-	statement = statements[_]
-
-	statement.Effect == "Allow"
-
-	resources = as_array(statement.Resource)
-	resource = resources[_]
-	resource == "*"
-
-	actions = as_array(statement.Action)
-	action = actions[_]
-	action == "*"
-}
-
-# Judge policies and wildcard policies.
-# Denies the resource if it is a wildcard policy/grants full administrative permissions
-policy[p] {
-	single_policy = wildcard_policies[name]
-	p = fugue.deny_resource_with_message(single_policy, "Full administrative permissions should not be granted.")
-}
-
-# Allows the resource if it is not a wildcard policy/does not grant full administrative permissions
-policy[p] {
-	single_policy = policies[name]
-	not wildcard_policies[name]
-	p = fugue.allow_resource(single_policy)
-}
-
-# Utility: turns anything into an array, if it's not an array already.
-as_array(x) = [x] {
-	not is_array(x)
-}
-
-else = x {
-	true
+findings contains finding if {
+	some t in _iam_types
+	some r in tf.resources(t)
+	tf.has_wildcard_allow_star(r.block)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("IAM policy %q grants Action=* with Resource=*.", [r.name]),
+		"artifact_uri": r.path,
+		"severity": "high",
+		"level": "error",
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }

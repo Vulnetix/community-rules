@@ -1,23 +1,44 @@
-package rules.cognitive_services_restrict_network_access
+# Adapted from https://github.com/cigna/confectionery
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-import data.fugue
+package vulnetix.rules.cigna_tf_az_cog_04
 
-resource_type = "MULTIPLE"
+import rego.v1
 
-azurerm_cognitive_account = fugue.resources("azurerm_cognitive_account")
+import data.vulnetix.cigna.tf
 
-valid(resource) {
-	resource.network_acls[_].default_action == "Deny"
+metadata := {
+	"id": "CIGNA-TF-AZ-COG-04",
+	"name": "Cognitive Services must set network_acls default_action = Deny",
+	"description": "azurerm_cognitive_account must have a network_acls block with default_action = \"Deny\".",
+	"help_uri": "https://github.com/cigna/confectionery/tree/main/rules/terraform/azure/cognitive-services",
+	"languages": ["terraform", "hcl"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-284"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "azure", "cognitive-services", "network"],
 }
 
-policy[p] {
-	resource = azurerm_cognitive_account[_]
-	valid(resource)
-	p = fugue.allow_resource(resource)
+findings contains finding if {
+	some r in tf.resources("azurerm_cognitive_account")
+	not _has_deny_default(r.block)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("Cognitive account %q has no network_acls.default_action = Deny.", [r.name]),
+		"artifact_uri": r.path,
+		"severity": "medium",
+		"level": "warning",
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }
 
-policy[p] {
-	resource = azurerm_cognitive_account[_]
-	not valid(resource)
-	p = fugue.deny_resource_with_message(resource, "Cognitive Services should have public network access denied and utilize firewall rules.  See https://docs.microsoft.com/en-us/azure/cognitive-services/cognitive-services-virtual-networks?tabs=portal#change-the-default-network-access-rule")
+_has_deny_default(block) if {
+	some nb in tf.sub_blocks(block, "network_acls")
+	tf.string_attr(nb, "default_action") == "Deny"
 }

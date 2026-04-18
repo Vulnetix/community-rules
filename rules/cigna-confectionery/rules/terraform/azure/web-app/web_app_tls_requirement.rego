@@ -1,26 +1,45 @@
-# Web App TLS Requirement: Deny Web App resources that do not leverage at least TLS version 1.2
-# This rule denies Web App resources from being created that do not utilize the required minimum TLS version 1.2
-package rules.web_app_tls_requirement
+# Adapted from https://github.com/cigna/confectionery
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-import data.fugue
+package vulnetix.rules.cigna_tf_az_wa_02
 
-resource_type = "MULTIPLE"
+import rego.v1
 
-web_apps = fugue.resources("azurerm_app_service")
+import data.vulnetix.cigna.tf
 
-# Ensures a given web app uses at least TLS 1.2
-uses_required_tls_version(resource) {
-	to_number(resource.site_config[_].min_tls_version) >= to_number("1.2")
+metadata := {
+	"id": "CIGNA-TF-AZ-WA-02",
+	"name": "Web Apps must use TLS 1.2 or higher",
+	"description": "azurerm_app_service site_config.min_tls_version must be >= 1.2.",
+	"help_uri": "https://github.com/cigna/confectionery/tree/main/rules/terraform/azure/web-app",
+	"languages": ["terraform", "hcl"],
+	"severity": "high",
+	"level": "error",
+	"kind": "iac",
+	"cwe": ["CWE-327"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "azure", "web-app", "tls"],
 }
 
-policy[p] {
-	resource = web_apps[_]
-	uses_required_tls_version(resource)
-	p = fugue.allow_resource(resource)
+findings contains finding if {
+	some r in tf.resources("azurerm_app_service")
+	not _has_required_tls(r.block)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("Web App %q does not set site_config.min_tls_version >= 1.2.", [r.name]),
+		"artifact_uri": r.path,
+		"severity": "high",
+		"level": "error",
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }
 
-policy[p] {
-	resource = web_apps[_]
-	not uses_required_tls_version(resource)
-	p = fugue.deny_resource_with_message(resource, "Web App resources must utilize TLS version 1.2 or greater.")
+_has_required_tls(block) if {
+	some sc in tf.sub_blocks(block, "site_config")
+	v := tf.string_attr(sc, "min_tls_version")
+	to_number(v) >= 1.2
 }

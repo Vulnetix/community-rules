@@ -1,42 +1,49 @@
-package rules.eks_version_enforcement
+# Adapted from https://github.com/cigna/confectionery
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-# Advanced rules typically use functions from the `fugue` library.
-import data.fugue
+package vulnetix.rules.cigna_tf_aws_eks_03
 
-# We mark an advanced rule by setting `resource_type` to `MULTIPLE`.
-resource_type = "MULTIPLE"
+import rego.v1
 
-# `fugue.resources` is a function that allows querying for resources of a
-# specific type.  In our case, we are just going to ask for the EBS volumes
-# again.
-eks_cluster = fugue.resources("aws_eks_cluster")
+import data.vulnetix.cigna.tf
 
-#Auxiliary function.
-is_allowed_version(resource) {
-	minimum_accepted_version := [1, 15, 0]
-
-	# Parse version into each value to be converted to number
-	version := resource.version
-	version_value := split(version, ".")
-
-	#Compare terraform version to minimum_accepted_version to ensure its equal to or greater than
-	#Major >= 1
-	to_number(version_value[0]) >= minimum_accepted_version[0]
-
-	#Minor >= 15
-	to_number(version_value[1]) >= minimum_accepted_version[1]
+metadata := {
+	"id": "CIGNA-TF-AWS-EKS-03",
+	"name": "EKS clusters must run Kubernetes 1.15 or newer",
+	"description": "aws_eks_cluster must set version to at least 1.15.",
+	"help_uri": "https://github.com/cigna/confectionery/tree/main/rules/terraform/aws/eks",
+	"languages": ["terraform", "hcl"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-1104"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "aws", "eks", "version"],
 }
 
-# Regula expects advanced rules to contain a `policy` rule that holds a set
-# of _judgements_.
-policy[p] {
-	resource = eks_cluster[_]
-	is_allowed_version(resource)
-	p = fugue.allow_resource(resource)
+findings contains finding if {
+	some r in tf.resources("aws_eks_cluster")
+	v := tf.string_attr(r.block, "version")
+	not _meets_min_version(v)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("EKS cluster %q version %q is below 1.15.", [r.name, v]),
+		"artifact_uri": r.path,
+		"severity": "medium",
+		"level": "warning",
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }
 
-policy[p] {
-	resource = eks_cluster[_]
-	not is_allowed_version(resource)
-	p = fugue.deny_resource_with_message(resource, "EKS must be version 1.15 or higher.")
+_meets_min_version(v) if {
+	parts := split(v, ".")
+	count(parts) >= 2
+	major := to_number(parts[0])
+	minor := to_number(parts[1])
+	major >= 1
+	minor >= 15
 }

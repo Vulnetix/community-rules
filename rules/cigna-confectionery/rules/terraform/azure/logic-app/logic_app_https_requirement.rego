@@ -1,26 +1,39 @@
-# Logic App HTTPS Requirement: Deny Standard Logic App resources that do not require HTTPS endpoint connections
-# This rule denies Standard Logic App resources from being created that do not require HTTPS protocol for app endpoint access
-package rules.logic_app_https_requirement
+# Adapted from https://github.com/cigna/confectionery
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-import data.fugue
+package vulnetix.rules.cigna_tf_az_logic_01
 
-resource_type = "MULTIPLE"
+import rego.v1
 
-logic_apps = fugue.resources("azurerm_logic_app_standard")
+import data.vulnetix.cigna.tf
 
-# Ensures a given web app requires HTTPS
-requires_https(resource) {
-	resource.https_only == true
+metadata := {
+	"id": "CIGNA-TF-AZ-LOGIC-01",
+	"name": "Logic Apps must require HTTPS",
+	"description": "azurerm_logic_app_standard must set https_only = true.",
+	"help_uri": "https://github.com/cigna/confectionery/tree/main/rules/terraform/azure/logic-app",
+	"languages": ["terraform", "hcl"],
+	"severity": "high",
+	"level": "error",
+	"kind": "iac",
+	"cwe": ["CWE-319"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "azure", "logic-app", "https"],
 }
 
-policy[p] {
-	resource = logic_apps[_]
-	requires_https(resource)
-	p = fugue.allow_resource(resource)
-}
-
-policy[p] {
-	resource = logic_apps[_]
-	not requires_https(resource)
-	p = fugue.deny_resource_with_message(resource, "Standard Logic App resources must require HTTPS endpoint connections.")
+findings contains finding if {
+	some r in tf.resources("azurerm_logic_app_standard")
+	tf.is_not_true(r.block, "https_only")
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("Logic App %q does not set https_only = true.", [r.name]),
+		"artifact_uri": r.path,
+		"severity": "high",
+		"level": "error",
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }

@@ -1,31 +1,39 @@
-# Redshift audit logging file validation: Deny if redshift logging is not enabled
-package rules.redshift_logging
+# Adapted from https://github.com/cigna/confectionery
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-import data.fugue
+package vulnetix.rules.cigna_tf_aws_rs_02
 
-# We mark an advanced rule by setting `resource_type` to `MULTIPLE`.
-resource_type = "MULTIPLE"
+import rego.v1
 
-# Grab redshift clusters in terraform template
-redshift_cluster = fugue.resources("aws_redshift_cluster")
+import data.vulnetix.cigna.tf
 
-# Auxiliary function
-# Redshift cluster is invalid if logging is not configured
-is_invalid_redshift(resource) {
-	resource.logging == []
+metadata := {
+	"id": "CIGNA-TF-AWS-RS-02",
+	"name": "Redshift clusters must enable audit logging",
+	"description": "aws_redshift_cluster must include a logging block.",
+	"help_uri": "https://github.com/cigna/confectionery/tree/main/rules/terraform/aws/redshift",
+	"languages": ["terraform", "hcl"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-778"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "aws", "redshift", "logging"],
 }
 
-# Regula expects advanced rules to contain a `policy` rule that holds a set of _judgements_.
-# Deny resource if redshift cluster does not have logging enabled
-policy[p] {
-	resource = redshift_cluster[_]
-	is_invalid_redshift(resource)
-	p = fugue.deny_resource_with_message(resource, "All redshift clusters must have logs enabled.")
-}
-
-# Allow resource if redshift cluster has logging enabled
-policy[p] {
-	resource = redshift_cluster[_]
-	not is_invalid_redshift(resource)
-	p = fugue.allow_resource(resource)
+findings contains finding if {
+	some r in tf.resources("aws_redshift_cluster")
+	not tf.has_sub_block(r.block, "logging")
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("Redshift cluster %q does not enable logging.", [r.name]),
+		"artifact_uri": r.path,
+		"severity": "medium",
+		"level": "warning",
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }

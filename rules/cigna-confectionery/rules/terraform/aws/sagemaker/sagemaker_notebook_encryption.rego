@@ -1,28 +1,39 @@
-# Sagemaker notebook encryption ensures notebooks are encrypted at rest
-package rules.sagemaker_notebook_encryption
+# Adapted from https://github.com/cigna/confectionery
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-import data.fugue
+package vulnetix.rules.cigna_tf_aws_sm_02
 
-resource_type = "MULTIPLE"
+import rego.v1
 
-# Find all sagemaker notebooks
-aws_sagemaker_notebook = fugue.resources("aws_sagemaker_notebook_instance")
+import data.vulnetix.cigna.tf
 
-#Notebook is encrypted is kms key id is defined
-is_encrypted(resource) {
-	resource.kms_key_id != null
+metadata := {
+	"id": "CIGNA-TF-AWS-SM-02",
+	"name": "SageMaker notebook instances must be encrypted with a KMS key",
+	"description": "aws_sagemaker_notebook_instance must set kms_key_id.",
+	"help_uri": "https://github.com/cigna/confectionery/tree/main/rules/terraform/aws/sagemaker",
+	"languages": ["terraform", "hcl"],
+	"severity": "high",
+	"level": "error",
+	"kind": "iac",
+	"cwe": ["CWE-311"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "aws", "sagemaker", "encryption"],
 }
 
-# Regula expects advanced rules to contain a `policy` rule that holds a set
-# of _judgements_.
-policy[p] {
-	resource = aws_sagemaker_notebook[_]
-	is_encrypted(resource)
-	p = fugue.allow_resource(resource)
-}
-
-policy[p] {
-	resource = aws_sagemaker_notebook[_]
-	not is_encrypted(resource)
-	p = fugue.deny_resource_with_message(resource, "Sagemaker notebooks must be encrypted with a kms_key.")
+findings contains finding if {
+	some r in tf.resources("aws_sagemaker_notebook_instance")
+	not tf.has_key(r.block, "kms_key_id")
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("SageMaker notebook %q has no kms_key_id set.", [r.name]),
+		"artifact_uri": r.path,
+		"severity": "high",
+		"level": "error",
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }

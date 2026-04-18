@@ -1,40 +1,45 @@
-package rules.rds_retention
+# Adapted from https://github.com/cigna/confectionery
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-# Advanced rules typically use functions from the `fugue` library.
-import data.fugue
+package vulnetix.rules.cigna_tf_aws_rds_05
 
-# We mark an advanced rule by setting `resource_type` to `MULTIPLE`.
-resource_type = "MULTIPLE"
+import rego.v1
 
-rds_resource_types = {
-	"aws_rds_cluster",
-	"aws_db_instance",
+import data.vulnetix.cigna.tf
+
+metadata := {
+	"id": "CIGNA-TF-AWS-RDS-05",
+	"name": "RDS backup_retention_period must be at least 7 days",
+	"description": "aws_db_instance and aws_rds_cluster must set backup_retention_period >= 7.",
+	"help_uri": "https://github.com/cigna/confectionery/tree/main/rules/terraform/aws/rds",
+	"languages": ["terraform", "hcl"],
+	"severity": "low",
+	"level": "note",
+	"kind": "iac",
+	"cwe": [],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "aws", "rds", "backup"],
 }
 
-rds_resources[id] = resource {
-	some resource_type
-	rds_resource_types[resource_type]
-	resources = fugue.resources(resource_type)
-	resource = resources[id]
+_types := {"aws_db_instance", "aws_rds_cluster"}
+
+findings contains finding if {
+	some t in _types
+	some r in tf.resources(t)
+	_retention_too_low(r.block)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("RDS resource %q backup_retention_period is less than 7 days.", [r.name]),
+		"artifact_uri": r.path,
+		"severity": "low",
+		"level": "note",
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }
 
-#rds_instance = fugue.resources("aws_db_instance")
-
-# Auxiliary function.
-is_retained(resource) {
-	resource.backup_retention_period >= 7
-}
-
-# Regula expects advanced rules to contain a `policy` rule that holds a set
-# of _judgements_.
-policy[p] {
-	resource = rds_resources[_]
-	is_retained(resource)
-	p = fugue.allow_resource(resource)
-}
-
-policy[p] {
-	resource = rds_resources[_]
-	not is_retained(resource)
-	p = fugue.deny_resource_with_message(resource, "RDS DB Instances and Clusters backup retention period should be set to at least 7 days.")
-}
+_retention_too_low(block) if not tf.has_key(block, "backup_retention_period")
+_retention_too_low(block) if tf.number_attr(block, "backup_retention_period") < 7

@@ -1,28 +1,39 @@
-package rules.key_vault_rbac_authorization
+# Adapted from https://github.com/cigna/confectionery
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-import data.fugue
+package vulnetix.rules.cigna_tf_az_kv_02
 
-resource_type = "MULTIPLE"
+import rego.v1
 
-azurerm_key_vault = fugue.resources("azurerm_key_vault")
+import data.vulnetix.cigna.tf
 
-# Auxiliary function checking if enable_rbac_authorization is true
-
-valid(resource) {
-	resource.enable_rbac_authorization == true
+metadata := {
+	"id": "CIGNA-TF-AZ-KV-02",
+	"name": "Key Vaults must enable RBAC authorization",
+	"description": "azurerm_key_vault must set enable_rbac_authorization = true.",
+	"help_uri": "https://github.com/cigna/confectionery/tree/main/rules/terraform/azure/key-vault",
+	"languages": ["terraform", "hcl"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-284"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "azure", "key-vault", "rbac"],
 }
 
-# Regula expects advanced rules to contain a `policy` rule that holds a set
-# of _judgements_.
-
-policy[p] {
-	resource = azurerm_key_vault[_]
-	valid(resource)
-	p = fugue.allow_resource(resource)
-}
-
-policy[p] {
-	resource = azurerm_key_vault[_]
-	not valid(resource)
-	p = fugue.deny_resource_with_message(resource, "Key Vaults should have RBAC authorization enabled.")
+findings contains finding if {
+	some r in tf.resources("azurerm_key_vault")
+	tf.is_not_true(r.block, "enable_rbac_authorization")
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("Key Vault %q does not set enable_rbac_authorization = true.", [r.name]),
+		"artifact_uri": r.path,
+		"severity": "medium",
+		"level": "warning",
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }

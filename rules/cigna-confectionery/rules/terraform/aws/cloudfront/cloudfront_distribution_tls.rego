@@ -1,40 +1,45 @@
-# Cloudfront distributions must utilize TLSv1.2_* or higher
-# TLS1.1 and lower are considered deprecated and should not be used. TLSv1.2 or TLSv1.3 are secure.
+# Adapted from https://github.com/cigna/confectionery
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-package rules.cloudfront_distribution_tls
+package vulnetix.rules.cigna_tf_aws_cf_01
 
-# Advanced rules typically use functions from the `fugue` library.
-import data.fugue
+import rego.v1
 
-# We mark an advanced rule by setting `resource_type` to `MULTIPLE`.
-resource_type = "MULTIPLE"
+import data.vulnetix.cigna.tf
 
-# `fugue.resources` is a function that allows querying for resources of a
-# specific type.  In our case, we are just going to ask for the EBS volumes
-# again.
-cloudfront_distribution_resource = fugue.resources("aws_cloudfront_distribution")
-
-correct_ciphers = {"TLSv1.2", "TLSv1.3"}
-
-#Auxiliary function.
-#Ensure TLS1.2_* or higher is being utilized
-is_TLS_correct_version(resource) {
-	contains(resource.viewer_certificate[_].minimum_protocol_version, correct_ciphers[_])
+metadata := {
+	"id": "CIGNA-TF-AWS-CF-01",
+	"name": "CloudFront viewer TLS minimum must be TLSv1.2 or higher",
+	"description": "aws_cloudfront_distribution must configure viewer_certificate.minimum_protocol_version to a TLSv1.2 or TLSv1.3 variant.",
+	"help_uri": "https://github.com/cigna/confectionery/tree/main/rules/terraform/aws/cloudfront",
+	"languages": ["terraform", "hcl"],
+	"severity": "high",
+	"level": "error",
+	"kind": "iac",
+	"cwe": ["CWE-326"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "aws", "cloudfront", "tls"],
 }
 
-# Regula expects advanced rules to contain a `policy` rule that holds a set
-# of _judgements_.
-
-#Allow resource if TLS1.2_* or higher is being used
-policy[p] {
-	resource = cloudfront_distribution_resource[_]
-	is_TLS_correct_version(resource)
-	p = fugue.allow_resource(resource)
+findings contains finding if {
+	some r in tf.resources("aws_cloudfront_distribution")
+	not _has_modern_tls(r.block)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("CloudFront distribution %q does not require TLSv1.2 or newer.", [r.name]),
+		"artifact_uri": r.path,
+		"severity": "high",
+		"level": "error",
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }
 
-#Deny resource if TLS is not enabled
-policy[p] {
-	resource = cloudfront_distribution_resource[_]
-	not is_TLS_correct_version(resource)
-	p = fugue.deny_resource_with_message(resource, "TLSv1.2_* or high must be utilized on cloudfront distributions.")
+_has_modern_tls(block) if {
+	some sb in tf.sub_blocks(block, "viewer_certificate")
+	v := tf.string_attr(sb, "minimum_protocol_version")
+	regex.match(`TLSv1\.(2|3)`, v)
 }

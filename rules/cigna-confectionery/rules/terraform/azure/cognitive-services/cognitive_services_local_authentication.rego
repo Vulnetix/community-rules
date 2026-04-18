@@ -1,28 +1,39 @@
-package rules.cognitive_services_local_authentication
+# Adapted from https://github.com/cigna/confectionery
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-import data.fugue
+package vulnetix.rules.cigna_tf_az_cog_02
 
-resource_type = "MULTIPLE"
+import rego.v1
 
-azurerm_cognitive_account = fugue.resources("azurerm_cognitive_account")
+import data.vulnetix.cigna.tf
 
-# Auxiliary function checking if cognitive services has local_auth_enabled is false
-
-valid(resource) {
-	resource.local_auth_enabled == false
+metadata := {
+	"id": "CIGNA-TF-AZ-COG-02",
+	"name": "Cognitive Services must disable local authentication",
+	"description": "azurerm_cognitive_account must set local_auth_enabled = false.",
+	"help_uri": "https://github.com/cigna/confectionery/tree/main/rules/terraform/azure/cognitive-services",
+	"languages": ["terraform", "hcl"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-798"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "azure", "cognitive-services", "authentication"],
 }
 
-# Regula expects advanced rules to contain a `policy` rule that holds a set
-# of _judgements_.
-
-policy[p] {
-	resource = azurerm_cognitive_account[_]
-	valid(resource)
-	p = fugue.allow_resource(resource)
-}
-
-policy[p] {
-	resource = azurerm_cognitive_account[_]
-	not valid(resource)
-	p = fugue.deny_resource_with_message(resource, "Azure Cognitive Services should have local authentication disabled.")
+findings contains finding if {
+	some r in tf.resources("azurerm_cognitive_account")
+	tf.is_not_false(r.block, "local_auth_enabled")
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("Cognitive account %q does not set local_auth_enabled = false.", [r.name]),
+		"artifact_uri": r.path,
+		"severity": "medium",
+		"level": "warning",
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }

@@ -1,32 +1,43 @@
-# Maria DB Require Geo Redundancy: Deny MariaDB server resources that do not utilize geo-redundancy
-# This rule denies MariaDB server resources from being created that do not utilize geo-redundancy
-package rules.maria_db_require_geo_redundancy
+# Adapted from https://github.com/cigna/confectionery
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-import data.fugue
+package vulnetix.rules.cigna_tf_az_db_01
 
-resource_type = "MULTIPLE"
+import rego.v1
 
-maria_dbs = fugue.resources("azurerm_mariadb_server")
+import data.vulnetix.cigna.tf
 
-# Ensures a given Maria DB server is geo-redundant
-is_geo_redundant(resource) {
-	resource.geo_redundant_backup_enabled == true
+metadata := {
+	"id": "CIGNA-TF-AZ-DB-01",
+	"name": "MariaDB servers must enable geo-redundant backups",
+	"description": "azurerm_mariadb_server must set geo_redundant_backup_enabled = true (Basic \"B*\" SKUs exempt).",
+	"help_uri": "https://github.com/cigna/confectionery/tree/main/rules/terraform/azure/database",
+	"languages": ["terraform", "hcl"],
+	"severity": "low",
+	"level": "note",
+	"kind": "iac",
+	"cwe": ["CWE-1104"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "azure", "mariadb", "availability"],
 }
 
-# Basic tier doesn't offer geo-redundancy, these lower tiers are valid
-is_geo_redundant(resource) {
-	# See SKU naming convention: https://docs.microsoft.com/en-us/rest/api/mariadb/servers/create#sku
-	startswith(resource.sku_name, "B")
+findings contains finding if {
+	some r in tf.resources("azurerm_mariadb_server")
+	not _is_geo_redundant(r.block)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("MariaDB server %q has no geo_redundant_backup_enabled = true.", [r.name]),
+		"artifact_uri": r.path,
+		"severity": "low",
+		"level": "note",
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }
 
-policy[p] {
-	resource = maria_dbs[_]
-	is_geo_redundant(resource)
-	p = fugue.allow_resource(resource)
-}
+_is_geo_redundant(block) if tf.bool_attr(block, "geo_redundant_backup_enabled") == true
 
-policy[p] {
-	resource = maria_dbs[_]
-	not is_geo_redundant(resource)
-	p = fugue.deny_resource_with_message(resource, "Maria DB server resources must utilize geo-redundancy if run on a SKU that supports it.")
-}
+_is_geo_redundant(block) if startswith(tf.string_attr(block, "sku_name"), "B")

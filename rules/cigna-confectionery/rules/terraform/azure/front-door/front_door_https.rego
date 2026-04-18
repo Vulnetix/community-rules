@@ -1,39 +1,59 @@
-package rules.front_door_https
+# Adapted from https://github.com/cigna/confectionery
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-import data.fugue
+package vulnetix.rules.cigna_tf_az_fd_01
 
-resource_type = "MULTIPLE"
+import rego.v1
 
-azurerm_frontdoor = fugue.resources("azurerm_frontdoor")
+import data.vulnetix.cigna.tf
 
-# Auxiliary function checking if frontdoor accepts HTTPS only or redirect HTTP to HTTPS
-
-valid(resource) {
-	some i
-	rule := resource.routing_rule[i]
-	count(rule.accepted_protocols) == 1 # checks if there is only one accepted protocol
-	rule.accepted_protocols[_] == "Https" # Https only
-	rule.forwarding_configuration[_].forwarding_protocol == "HttpsOnly" # forwarding configuration to HttpsOnly
+metadata := {
+	"id": "CIGNA-TF-AZ-FD-01",
+	"name": "Front Door must require HTTPS or redirect HTTP to HTTPS",
+	"description": "azurerm_frontdoor routing_rule must either accept HTTPS only with forwarding_configuration.forwarding_protocol = HttpsOnly, or redirect HTTP via redirect_configuration.redirect_protocol = HttpsOnly.",
+	"help_uri": "https://github.com/cigna/confectionery/tree/main/rules/terraform/azure/front-door",
+	"languages": ["terraform", "hcl"],
+	"severity": "high",
+	"level": "error",
+	"kind": "iac",
+	"cwe": ["CWE-319"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "azure", "front-door", "https"],
 }
 
-valid(resource) {
-	some j
-	rule := resource.routing_rule[j]
-	rule.accepted_protocols[_] == "Http" # checks if http is atleast in accepted protocols
-	rule.redirect_configuration[_].redirect_protocol == "HttpsOnly" # redirects http to HttpsOnly
+findings contains finding if {
+	some r in tf.resources("azurerm_frontdoor")
+	not _has_valid_rule(r.block)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("Front Door %q does not enforce HTTPS (or HTTP→HTTPS redirect).", [r.name]),
+		"artifact_uri": r.path,
+		"severity": "high",
+		"level": "error",
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }
 
-# Regula expects advanced rules to contain a `policy` rule that holds a set
-# of _judgements_.
-
-policy[p] {
-	resource = azurerm_frontdoor[_]
-	valid(resource)
-	p = fugue.allow_resource(resource)
+_has_valid_rule(block) if {
+	some rule in tf.sub_blocks(block, "routing_rule")
+	_https_only(rule)
 }
 
-policy[p] {
-	resource = azurerm_frontdoor[_]
-	not valid(resource)
-	p = fugue.deny_resource_with_message(resource, "Azure Front Door should only allow HTTPS or redirect HTTP to HTTPS.")
+_has_valid_rule(block) if {
+	some rule in tf.sub_blocks(block, "routing_rule")
+	_redirects_http(rule)
+}
+
+_https_only(rule) if {
+	some fwd in tf.sub_blocks(rule, "forwarding_configuration")
+	tf.string_attr(fwd, "forwarding_protocol") == "HttpsOnly"
+}
+
+_redirects_http(rule) if {
+	some red in tf.sub_blocks(rule, "redirect_configuration")
+	tf.string_attr(red, "redirect_protocol") == "HttpsOnly"
 }

@@ -1,30 +1,44 @@
-# S3 Bucket Encryption: Deny S3 Buckets that are not encrypted and/or do not have a valid sse algorithm.
-# Objects stored within S3 buckets are not encrypted at-rest by default. This rule denies S3 buckets that are not encrypted by validating server side encryption is enabled with valid algorithms (aws:kms or AES256).
-package rules.s3_encryption
+# Adapted from https://github.com/cigna/confectionery
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-resource_type = "aws_s3_bucket"
+package vulnetix.rules.cigna_tf_aws_s3_01
 
-controls = {"NIST-800-53_SC-13"}
+import rego.v1
 
-# Explicitly allow AES256 or aws:kms server side SSE algorithms.
-valid_sse_algorithms = {
-	"AES256",
-	"aws:kms",
+import data.vulnetix.cigna.tf
+
+metadata := {
+	"id": "CIGNA-TF-AWS-S3-01",
+	"name": "S3 buckets must configure server-side encryption with AES256 or aws:kms",
+	"description": "aws_s3_bucket must declare server_side_encryption_configuration with sse_algorithm of AES256 or aws:kms.",
+	"help_uri": "https://github.com/cigna/confectionery/tree/main/rules/terraform/aws/s3",
+	"languages": ["terraform", "hcl"],
+	"severity": "high",
+	"level": "error",
+	"kind": "iac",
+	"cwe": ["CWE-311"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "aws", "s3", "encryption"],
 }
 
-# Collect all sse algorithms configured under `server_side_encryption_configuration`.
-used_sse_algorithms[algorithm] {
-	algorithm = input.server_side_encryption_configuration[_].rule[_][_][_].sse_algorithm
+findings contains finding if {
+	some r in tf.resources("aws_s3_bucket")
+	not _has_valid_sse(r.block)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("S3 bucket %q is missing server_side_encryption_configuration with AES256 or aws:kms.", [r.name]),
+		"artifact_uri": r.path,
+		"severity": "high",
+		"level": "error",
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }
 
-deny[msg] {
-	# Deny resource if sse algorithm is not configured for s3
-	count(used_sse_algorithms) <= 0
-	msg = "S3 server-side encryption is required for all s3 buckets."
-}
-
-deny[msg] {
-	# Deny resource if any of the used sse algorithms are not set to AES256 or aws:kms
-	count(used_sse_algorithms - valid_sse_algorithms) > 0
-	msg = "S3 server-side encryption is required for all s3 buckets."
+_has_valid_sse(block) if {
+	some outer in tf.sub_blocks(block, "server_side_encryption_configuration")
+	regex.match(`sse_algorithm\s*=\s*"(AES256|aws:kms)"`, outer)
 }

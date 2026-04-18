@@ -1,32 +1,39 @@
-# ACM validation: Deny any ACM Certificate that is not certified by DNS, validation by email is not allowed.
-package rules.acm_dns_validation
+# Adapted from https://github.com/cigna/confectionery
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-# Advanced rules typically use functions from the `fugue` library.
-import data.fugue
+package vulnetix.rules.cigna_tf_aws_acm_01
 
-# We mark an advanced rule by setting `resource_type` to `MULTIPLE`.
-resource_type = "MULTIPLE"
+import rego.v1
 
-#Find all acm_certificate resources
-acm_certificate = fugue.resources("aws_acm_certificate")
+import data.vulnetix.cigna.tf
 
-# Auxiliary function
-#ACM Certificates should not be validated with Email 
-is_invalid(resource) {
-	resource.validation_method == "EMAIL"
+metadata := {
+	"id": "CIGNA-TF-AWS-ACM-01",
+	"name": "ACM certificates must use DNS validation",
+	"description": "aws_acm_certificate resources must not set validation_method to EMAIL.",
+	"help_uri": "https://github.com/cigna/confectionery/tree/main/rules/terraform/aws/acm",
+	"languages": ["terraform", "hcl"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-295"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "aws", "acm"],
 }
 
-# Regula expects advanced rules to contain a `policy` rule that holds a set of _judgements_.
-# Allow resource if ACM Certificate is validated with DNS 
-policy[p] {
-	resource = acm_certificate[_]
-	not is_invalid(resource)
-	p = fugue.allow_resource(resource)
-}
-
-#Deny resource if ACM Certificate is not validated with DNS
-policy[p] {
-	resource = acm_certificate[_]
-	is_invalid(resource)
-	p = fugue.deny_resource_with_message(resource, "ACM Certificates should be validated with DNS, not email.")
+findings contains finding if {
+	some r in tf.resources("aws_acm_certificate")
+	tf.string_attr(r.block, "validation_method") == "EMAIL"
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("ACM certificate %q uses EMAIL validation; use DNS instead.", [r.name]),
+		"artifact_uri": r.path,
+		"severity": "medium",
+		"level": "warning",
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }

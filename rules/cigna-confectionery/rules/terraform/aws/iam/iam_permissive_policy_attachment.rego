@@ -1,64 +1,59 @@
-# IAM Permissive Policy Attachments: Deny IAM managed policies that are overly permissive 
-# This rule denies any type of IAM policy attachments that overly permissive by validating and ensuring AWS managed policies that are too permissive are not used
+# Adapted from https://github.com/cigna/confectionery
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-package rules.iam_permissive_attached_policy
+package vulnetix.rules.cigna_tf_aws_iam_03
 
-import data.fugue
+import rego.v1
 
-resource_type = "MULTIPLE"
+import data.vulnetix.cigna.tf
 
-# Some AWS managed policies are too permissive and should not be used. You should create new more granular policies
-# The following managed policies are not allowed
-#	"AdministratorAccess"
-#	"AmazonS3FullAccess"
-#	"AmazonElasticMapReduceFullAccess"
-#	"IAMFullAccess"
-#	"PowerUserAccess"
-#	"service-role/AmazonEC2RoleforSSM"
-#	"service-role/AmazonElasticMapReduceforEC2Role"
-#	"arn:aws:iam::aws:policy/AWSLambdaFullAccess"
+metadata := {
+	"id": "CIGNA-TF-AWS-IAM-03",
+	"name": "IAM policy attachments must not use overly permissive AWS managed policies",
+	"description": "Detects attachments of AdministratorAccess, IAMFullAccess, PowerUserAccess and similar managed policies.",
+	"help_uri": "https://github.com/cigna/confectionery/tree/main/rules/terraform/aws/iam",
+	"languages": ["terraform", "hcl"],
+	"severity": "high",
+	"level": "error",
+	"kind": "iac",
+	"cwe": ["CWE-250"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "aws", "iam"],
+}
 
-# Validate any of the following iam policy types
-iam_policy_types = {
-	"aws_iam_user_policy_attachment",
+_attach_types := {
 	"aws_iam_policy_attachment",
+	"aws_iam_user_policy_attachment",
 	"aws_iam_group_policy_attachment",
 	"aws_iam_role_policy_attachment",
 }
 
-iam_policies[id] = resource {
-	some resource_type
-	iam_policy_types[resource_type]
-	resources = fugue.resources(resource_type)
-	resource = resources[id]
+_deny_policies := {
+	"arn:aws:iam::aws:policy/AdministratorAccess",
+	"arn:aws:iam::aws:policy/IAMFullAccess",
+	"arn:aws:iam::aws:policy/AmazonS3FullAccess",
+	"arn:aws:iam::aws:policy/AmazonElasticMapReduceFullAccess",
+	"arn:aws:iam::aws:policy/PowerUserAccess",
+	"arn:aws:iam::aws:policy/service-role/AmazonEC2RoleforSSM",
+	"arn:aws:iam::aws:policy/service-role/AmazonElasticMapReduceforEC2Role",
+	"arn:aws:iam::aws:policy/AWSLambdaFullAccess",
 }
 
-# The following overly permissive policies should not be used 
-is_invalid(resource) {
-	deny_policies := {
-		"arn:aws:iam::aws:policy/AdministratorAccess",
-		"arn:aws:iam::aws:policy/IAMFullAccess",
-		"arn:aws:iam::aws:policy/AmazonS3FullAccess",
-		"arn:aws:iam::aws:policy/AmazonElasticMapReduceFullAccess",
-		"arn:aws:iam::aws:policy/PowerUserAccess",
-		"arn:aws:iam::aws:policy/service-role/AmazonEC2RoleforSSM",
-		"arn:aws:iam::aws:policy/service-role/AmazonElasticMapReduceforEC2Role",
-		"arn:aws:iam::aws:policy/AWSLambdaFullAccess",
+findings contains finding if {
+	some t in _attach_types
+	some r in tf.resources(t)
+	arn := tf.string_attr(r.block, "policy_arn")
+	_deny_policies[arn]
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("Attachment %q references overly permissive managed policy %q.", [r.name, arn]),
+		"artifact_uri": r.path,
+		"severity": "high",
+		"level": "error",
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
 	}
-
-	resource.policy_arn == deny_policies[_]
-}
-
-# Denies the resource if any of the deny_policies are used
-policy[r] {
-	resource = iam_policies[_]
-	is_invalid(resource)
-	r = fugue.deny_resource_with_message(resource, "Overly Permissive managed policy used, please use/create a policy that follows least privilege.")
-}
-
-# Allows the resource if none of the deny_policies are used
-policy[r] {
-	resource = iam_policies[_]
-	not is_invalid(resource)
-	r = fugue.allow_resource(resource)
 }

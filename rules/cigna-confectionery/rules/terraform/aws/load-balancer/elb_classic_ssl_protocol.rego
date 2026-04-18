@@ -1,42 +1,44 @@
-# Elastic Load Balancer Classic SSL protocol configuration must not contain one of the following SSL protocols to be compliant
-# These versions of TLS are not reccomended by AWS and are considered deprecated
-package rules.elb_classic_ssl_protocol
+# Adapted from https://github.com/cigna/confectionery
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-# Advanced rules typically use functions from the `fugue` library.
-import data.fugue
+package vulnetix.rules.cigna_tf_aws_elb_03
 
-# We mark an advanced rule by setting `resource_type` to `MULTIPLE`.
-resource_type = "MULTIPLE"
+import rego.v1
 
-# `fugue.resources` is a function that allows querying for resources of a
-# specific type.  In our case, we are just going to ask for the EBS volumes
-# again.
-elb_resource = fugue.resources("aws_load_balancer_policy")
+import data.vulnetix.cigna.tf
 
-#SSL Protocols that are not allowed
-dissallowed_ssl_protocols = {"Protocol-TLSv1", "Protocol-SSLv3", "Protocol-SSLv2", "Protocol-SSLv1"}
-
-#Auxiliary function.
-#Limit users to TLS1.1 or higher
-is_TLS_incorrect_version(resource) {
-	some attr
-	policy_attributes := resource.policy_attribute[attr]
-	policy_attributes.name == dissallowed_ssl_protocols[_]
-	policy_attributes.value == "true"
+metadata := {
+	"id": "CIGNA-TF-AWS-ELB-03",
+	"name": "Classic ELB policies must not enable deprecated SSL/TLS protocols",
+	"description": "aws_load_balancer_policy policy_attributes must not enable Protocol-TLSv1, Protocol-SSLv3/SSLv2/SSLv1.",
+	"help_uri": "https://github.com/cigna/confectionery/tree/main/rules/terraform/aws/load-balancer",
+	"languages": ["terraform", "hcl"],
+	"severity": "high",
+	"level": "error",
+	"kind": "iac",
+	"cwe": ["CWE-327"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "aws", "elb", "tls"],
 }
 
-# Regula expects advanced rules to contain a `policy` rule that holds a set
-# of _judgements_.
-# Allow resource if it is not utilizing an incorrect TLS version
-policy[p] {
-	resource = elb_resource[_]
-	not is_TLS_incorrect_version(resource)
-	p = fugue.allow_resource(resource)
-}
+_disallowed := {"Protocol-TLSv1", "Protocol-SSLv3", "Protocol-SSLv2", "Protocol-SSLv1"}
 
-# Deny if resource is utilizing an incorrect TLS version
-policy[p] {
-	resource = elb_resource[_]
-	is_TLS_incorrect_version(resource)
-	p = fugue.deny_resource_with_message(resource, "An improper SSL protocol is being deployed.")
+findings contains finding if {
+	some r in tf.resources("aws_load_balancer_policy")
+	some pa in tf.sub_blocks(r.block, "policy_attribute")
+	n := tf.string_attr(pa, "name")
+	_disallowed[n]
+	tf.string_attr(pa, "value") == "true"
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("Classic ELB policy %q enables deprecated protocol %q.", [r.name, n]),
+		"artifact_uri": r.path,
+		"severity": "high",
+		"level": "error",
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }

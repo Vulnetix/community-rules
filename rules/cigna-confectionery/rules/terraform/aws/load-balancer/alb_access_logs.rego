@@ -1,29 +1,43 @@
-# ALB Access Logging: Deny Application Load Balancers (ALBs) that are built without access logging enabled
-package rules.alb_access_logging
+# Adapted from https://github.com/cigna/confectionery
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-import data.fugue
+package vulnetix.rules.cigna_tf_aws_elb_01
 
-resource_type = "MULTIPLE"
+import rego.v1
 
-# Grab every aws load balancer in template
-application_load_balancer = fugue.resources("aws_lb")
+import data.vulnetix.cigna.tf
 
-# Application load balancer is disabled if no access logging configurations
-is_invalid_load_balancer(resource) {
-	resource.access_logs == []
-	resource.load_balancer_type == "application"
+metadata := {
+	"id": "CIGNA-TF-AWS-ELB-01",
+	"name": "Application load balancers must enable access logs",
+	"description": "aws_lb of load_balancer_type \"application\" must declare an access_logs block.",
+	"help_uri": "https://github.com/cigna/confectionery/tree/main/rules/terraform/aws/load-balancer",
+	"languages": ["terraform", "hcl"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-778"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "aws", "elb", "logging"],
 }
 
-# Deny resource if ALB does not have access logging enabled
-policy[p] {
-	resource = application_load_balancer[_]
-	is_invalid_load_balancer(resource)
-	p = fugue.deny_resource_with_message(resource, "All application load balancers must have access logs enabled.")
+findings contains finding if {
+	some r in tf.resources("aws_lb")
+	_is_alb(r.block)
+	not tf.has_sub_block(r.block, "access_logs")
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("Application load balancer %q does not configure access_logs.", [r.name]),
+		"artifact_uri": r.path,
+		"severity": "medium",
+		"level": "warning",
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }
 
-# Allow resource if ALB has access logging enabled
-policy[p] {
-	resource = application_load_balancer[_]
-	not is_invalid_load_balancer(resource)
-	p = fugue.allow_resource(resource)
-}
+_is_alb(block) if not tf.has_key(block, "load_balancer_type")
+_is_alb(block) if tf.string_attr(block, "load_balancer_type") == "application"

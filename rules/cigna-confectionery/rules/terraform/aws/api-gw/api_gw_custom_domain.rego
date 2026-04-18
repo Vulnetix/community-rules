@@ -1,34 +1,45 @@
-package rules.api_gw_custom_domain
+# Adapted from https://github.com/cigna/confectionery
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-import data.fugue
+package vulnetix.rules.cigna_tf_aws_apigw_01
 
-resource_type = "MULTIPLE"
+import rego.v1
 
-rest_api = fugue.resources("aws_api_gateway_rest_api")
+import data.vulnetix.cigna.tf
 
-mapping = fugue.resources("aws_api_gateway_base_path_mapping")
-
-# Auxiliary function checking if a mapping exists
-is_valid(resource) {
-	resource.id == mapping[_].api_id
+metadata := {
+	"id": "CIGNA-TF-AWS-APIGW-01",
+	"name": "API Gateway REST APIs must have a base-path mapping",
+	"description": "Each aws_api_gateway_rest_api should be attached to an aws_api_gateway_base_path_mapping so a custom domain is configured.",
+	"help_uri": "https://github.com/cigna/confectionery/tree/main/rules/terraform/aws/api-gw",
+	"languages": ["terraform", "hcl"],
+	"severity": "low",
+	"level": "note",
+	"kind": "iac",
+	"cwe": [],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "aws", "apigw"],
 }
 
-# Second is_valid accounts for when the address is lost to an arn or other id
-is_valid(resource) {
-	resource._id == mapping[_].api_id
+findings contains finding if {
+	some r in tf.resources("aws_api_gateway_rest_api")
+	not _has_mapping(r.name)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("API Gateway REST API %q has no aws_api_gateway_base_path_mapping.", [r.name]),
+		"artifact_uri": r.path,
+		"severity": "low",
+		"level": "note",
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }
 
-# Regula expects advanced rules to contain a `policy` rule that holds a set
-# of _judgements_.
-
-policy[p] {
-	resource = rest_api[_]
-	is_valid(resource)
-	p = fugue.allow_resource(resource)
-}
-
-policy[p] {
-	resource = rest_api[_]
-	not is_valid(resource)
-	p = fugue.deny_resource_with_message(resource, "API Gateway Should be configured with a custom domain name for operational resilency and to allow for enabling of proper tls versions.")
+_has_mapping(name) if {
+	some m in tf.resources("aws_api_gateway_base_path_mapping")
+	api_id := tf.string_attr(m.block, "api_id")
+	contains(api_id, name)
 }

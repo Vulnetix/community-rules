@@ -1,31 +1,39 @@
-package rules.sagemaker_notebook_internet_access
+# Adapted from https://github.com/cigna/confectionery
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-# Advanced rules typically use functions from the `fugue` library.
-import data.fugue
+package vulnetix.rules.cigna_tf_aws_sm_03
 
-# We mark an advanced rule by setting `resource_type` to `MULTIPLE`.
-resource_type = "MULTIPLE"
+import rego.v1
 
-# `fugue.resources` is a function that allows querying for resources of a
-# specific type.  In our case, we are just going to ask for the EBS volumes
-# again.
-aws_sagemaker_notebook_instance = fugue.resources("aws_sagemaker_notebook_instance")
+import data.vulnetix.cigna.tf
 
-# Auxiliary function.
-is_internet_access(resource) {
-	resource.direct_internet_access == "Enabled"
+metadata := {
+	"id": "CIGNA-TF-AWS-SM-03",
+	"name": "SageMaker notebook instances must disable direct internet access",
+	"description": "aws_sagemaker_notebook_instance must not set direct_internet_access = Enabled.",
+	"help_uri": "https://github.com/cigna/confectionery/tree/main/rules/terraform/aws/sagemaker",
+	"languages": ["terraform", "hcl"],
+	"severity": "high",
+	"level": "error",
+	"kind": "iac",
+	"cwe": ["CWE-284"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "aws", "sagemaker", "network"],
 }
 
-# Regula expects advanced rules to contain a `policy` rule that holds a set
-# of _judgements_.
-policy[p] {
-	resource = aws_sagemaker_notebook_instance[_]
-	not is_internet_access(resource)
-	p = fugue.allow_resource(resource)
-}
-
-policy[p] {
-	resource = aws_sagemaker_notebook_instance[_]
-	is_internet_access(resource)
-	p = fugue.deny_resource_with_message(resource, "All Sagemaker notebook instances must disable direct internet access.")
+findings contains finding if {
+	some r in tf.resources("aws_sagemaker_notebook_instance")
+	tf.string_attr(r.block, "direct_internet_access") == "Enabled"
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("SageMaker notebook %q has direct_internet_access=Enabled.", [r.name]),
+		"artifact_uri": r.path,
+		"severity": "high",
+		"level": "error",
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }

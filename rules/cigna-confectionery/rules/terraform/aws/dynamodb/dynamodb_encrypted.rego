@@ -1,34 +1,44 @@
-# Dynamodb Encryption: Deny dynamodb tables that are encrypted using AWS Owned CMK 
-# This rule denies dynamodb tables that are encrypted using AWS Owned CMK by validating and ensuring that dynamodb is encrypted using AWS Managed CMK
+# Adapted from https://github.com/cigna/confectionery
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-package rules.dynamodb_encrypted
+package vulnetix.rules.cigna_tf_aws_ddb_01
 
-import data.fugue
+import rego.v1
 
-# We mark an advanced rule by setting `resource_type` to `MULTIPLE`.
-resource_type = "MULTIPLE"
+import data.vulnetix.cigna.tf
 
-# Validate all dynamodb tables
-db_tables = fugue.resources("aws_dynamodb_table")
-
-# Auxiliary function
-# Denies the dynamodb table if server side encryption is not enabled and set to true
-is_valid(resource) {
-	sse = resource.server_side_encryption[_]
-	sse.enabled == true
+metadata := {
+	"id": "CIGNA-TF-AWS-DDB-01",
+	"name": "DynamoDB tables must enable server-side encryption",
+	"description": "aws_dynamodb_table must declare a server_side_encryption block with enabled = true.",
+	"help_uri": "https://github.com/cigna/confectionery/tree/main/rules/terraform/aws/dynamodb",
+	"languages": ["terraform", "hcl"],
+	"severity": "high",
+	"level": "error",
+	"kind": "iac",
+	"cwe": ["CWE-311"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "aws", "dynamodb", "encryption"],
 }
 
-# Regula expects advanced rules to contain a `policy` rule that holds a set of _judgements_.
-# Denies resource if dynamodb table is not encrypted using AWS Managed CMK
-policy[p] {
-	resource = db_tables[_]
-	not is_valid(resource)
-	p = fugue.deny_resource_with_message(resource, "Dynamodb tables must be encrypted using AWS Managed CMK.")
+findings contains finding if {
+	some r in tf.resources("aws_dynamodb_table")
+	not _sse_enabled(r.block)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("DynamoDB table %q does not enable server_side_encryption.", [r.name]),
+		"artifact_uri": r.path,
+		"severity": "high",
+		"level": "error",
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }
 
-# Allows resource if dynamodb table is encrypted using AWS Managed CMK
-policy[p] {
-	resource = db_tables[_]
-	is_valid(resource)
-	p = fugue.allow_resource(resource)
+_sse_enabled(block) if {
+	some sb in tf.sub_blocks(block, "server_side_encryption")
+	tf.bool_attr(sb, "enabled") == true
 }

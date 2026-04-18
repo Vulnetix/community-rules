@@ -1,27 +1,39 @@
-package rules.cloudfront_logging
+# Adapted from https://github.com/cigna/confectionery
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-import data.fugue
+package vulnetix.rules.cigna_tf_aws_cf_03
 
-resource_type = "MULTIPLE"
+import rego.v1
 
-# Grab every aws cloudfront in template
-cloudfront_distribution = fugue.resources("aws_cloudfront_distribution")
+import data.vulnetix.cigna.tf
 
-# Cloudfront is disabled if no logging configurations
-is_invalid_cloudfront(resource) {
-	resource.logging_config == []
+metadata := {
+	"id": "CIGNA-TF-AWS-CF-03",
+	"name": "CloudFront distributions must configure access logging",
+	"description": "aws_cloudfront_distribution must include a logging_config block.",
+	"help_uri": "https://github.com/cigna/confectionery/tree/main/rules/terraform/aws/cloudfront",
+	"languages": ["terraform", "hcl"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-778"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "aws", "cloudfront", "logging"],
 }
 
-# Deny resource if cloudfront does not have logging enabled
-policy[p] {
-	resource = cloudfront_distribution[_]
-	is_invalid_cloudfront(resource)
-	p = fugue.deny_resource_with_message(resource, "All cloudfront distributions must have logs enabled.")
-}
-
-# Allow resource if cloudfront has logging enabled
-policy[p] {
-	resource = cloudfront_distribution[_]
-	not is_invalid_cloudfront(resource)
-	p = fugue.allow_resource(resource)
+findings contains finding if {
+	some r in tf.resources("aws_cloudfront_distribution")
+	not tf.has_sub_block(r.block, "logging_config")
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("CloudFront distribution %q does not enable logging_config.", [r.name]),
+		"artifact_uri": r.path,
+		"severity": "medium",
+		"level": "warning",
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }

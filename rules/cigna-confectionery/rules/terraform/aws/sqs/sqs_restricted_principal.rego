@@ -1,75 +1,39 @@
-package rules.sqs_restricted_principal
+# Adapted from https://github.com/cigna/confectionery
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-# Advanced rules typically use functions from the `fugue` library.
-import data.fugue
+package vulnetix.rules.cigna_tf_aws_sqs_01
 
-# We mark an advanced rule by setting `resource_type` to `MULTIPLE`.
-resource_type = "MULTIPLE"
+import rego.v1
 
-aws_sqs_queue_policy = fugue.resources("aws_sqs_queue_policy")
+import data.vulnetix.cigna.tf
 
-# Checking for Principal * or AWS:*
-is_deny_star_principal(a) {
-	a == "*"
+metadata := {
+	"id": "CIGNA-TF-AWS-SQS-01",
+	"name": "SQS queue policies must not grant wildcard Principal without Condition",
+	"description": "aws_sqs_queue_policy with Effect=Allow and Principal=\"*\" (or AWS:\"*\") must include a Condition.",
+	"help_uri": "https://github.com/cigna/confectionery/tree/main/rules/terraform/aws/sqs",
+	"languages": ["terraform", "hcl"],
+	"severity": "high",
+	"level": "error",
+	"kind": "iac",
+	"cwe": ["CWE-284"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "aws", "sqs", "iam"],
 }
 
-is_deny_star_principal(a) {
-	a.AWS == "*"
-}
-
-# Exception conditions if Principal * or AWS:* does exist
-
-# Determine if a policy is a "public policy"
-#
-# - Effect: Allow
-# - Principal: "*" or .AWS: "*"
-# - Condition does not exist
-is_not_wildcard_policy(resource) {
-	startswith(resource.policy, "{")
-	json.unmarshal(resource.policy, doc)
-	statements = as_array(doc.Statement)
-	statement = statements[_]
-
-	statement.Effect == "Allow"
-
-	principals = as_array(statement.Principal)
-	principal = principals[_]
-
-	not is_deny_star_principal(principal)
-}
-
-is_not_wildcard_policy(resource) {
-	startswith(resource.policy, "{")
-	json.unmarshal(resource.policy, doc)
-	statements = as_array(doc.Statement)
-	statement = statements[_]
-
-	statement.Effect == "Allow"
-
-	principals = as_array(statement.Principal)
-	principal = principals[_]
-
-	statement.Condition
-}
-
-# Judge policies and wildcard policies.
-policy[p] {
-	resource = aws_sqs_queue_policy[_]
-	not is_not_wildcard_policy(resource)
-	p = fugue.deny_resource_with_message(resource, "Deny SQS policies that have wildcard principals with no limiting conditions defined.")
-}
-
-policy[p] {
-	resource = aws_sqs_queue_policy[_]
-	is_not_wildcard_policy(resource)
-	p = fugue.allow_resource(resource)
-}
-
-# Helper function to make anything an array that is not already
-as_array(x) = [x] {
-	not is_array(x)
-}
-
-else = x {
-	true
+findings contains finding if {
+	some r in tf.resources("aws_sqs_queue_policy")
+	tf.has_wildcard_principal_without_condition(r.block)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("SQS queue policy %q grants wildcard Principal with no Condition.", [r.name]),
+		"artifact_uri": r.path,
+		"severity": "high",
+		"level": "error",
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }

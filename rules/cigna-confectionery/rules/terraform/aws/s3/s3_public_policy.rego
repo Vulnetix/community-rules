@@ -1,91 +1,39 @@
-package rules.s3_public_policy
+# Adapted from https://github.com/cigna/confectionery
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-# Advanced rules typically use functions from the `fugue` library.
-import data.fugue
+package vulnetix.rules.cigna_tf_aws_s3_03
 
-# We mark an advanced rule by setting `resource_type` to `MULTIPLE`.
-resource_type = "MULTIPLE"
+import rego.v1
 
-s3_bucket = fugue.resources("aws_s3_bucket_policy")
+import data.vulnetix.cigna.tf
 
-# Checking for Principal * or AWS:*
-is_deny_star_principal(a) {
-	a == "*"
+metadata := {
+	"id": "CIGNA-TF-AWS-S3-03",
+	"name": "S3 bucket policies must not grant wildcard principals without conditions",
+	"description": "aws_s3_bucket_policy must not have Effect=Allow with Principal=\"*\" unless a Condition limits access (e.g. aws:SourceVpc or aws:PrincipalOrgID).",
+	"help_uri": "https://github.com/cigna/confectionery/tree/main/rules/terraform/aws/s3",
+	"languages": ["terraform", "hcl"],
+	"severity": "high",
+	"level": "error",
+	"kind": "iac",
+	"cwe": ["CWE-284"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "aws", "s3"],
 }
 
-is_deny_star_principal(a) {
-	a.AWS == "*"
-}
-
-# Exception conditions if Principal * or AWS:* does exist
-check_conditions(condition) {
-	condition.StringEquals["aws:SourceVpc"]
-}
-
-check_conditions(condition) {
-	condition.StringEquals["aws:PrincipalOrgID"]
-}
-
-# Determine if a policy is a "public policy"
-#
-# - Effect: Allow
-# - Principal: "*" or .AWS: "*"
-# - Condition does not contain StringEquals.aws:sourceVpc or StringEquals.aws:PrincipalOrgID
-is_not_wildcard_policy(resource) {
-	startswith(resource.policy, "{")
-	json.unmarshal(resource.policy, doc)
-	statements = as_array(doc.Statement)
-	statement = statements[_]
-
-	statement.Effect == "Allow"
-
-	principals = as_array(statement.Principal)
-	principal = principals[_]
-
-	not is_deny_star_principal(principal)
-}
-
-is_not_wildcard_policy(resource) {
-	startswith(resource.policy, "{")
-	json.unmarshal(resource.policy, doc)
-	statements = as_array(doc.Statement)
-	statement = statements[_]
-
-	statement.Effect == "Allow"
-
-	principals = as_array(statement.Principal)
-	principal = principals[_]
-
-	check_conditions(statement.Condition)
-}
-
-is_not_wildcard_policy(resource) {
-	startswith(resource.policy, "{")
-	json.unmarshal(resource.policy, doc)
-	statements = as_array(doc.Statement)
-	statement = statements[_]
-
-	statement.Effect == "Deny"
-}
-
-# Judge policies and wildcard policies.
-policy[p] {
-	resource = s3_bucket[_]
-	not is_not_wildcard_policy(resource)
-	p = fugue.deny_resource_with_message(resource, "Having Effect:Allow and Principal:* with no condition on a Bucket Policy can unintentionally leave an S3 bucket open to the public. Either set a sourceVPC or PrincipalOrgID condition or set Principal more restrictive than *.")
-}
-
-policy[p] {
-	resource = s3_bucket[_]
-	is_not_wildcard_policy(resource)
-	p = fugue.allow_resource(resource)
-}
-
-# Helper function to make anything an array that is not already
-as_array(x) = [x] {
-	not is_array(x)
-}
-
-else = x {
-	true
+findings contains finding if {
+	some r in tf.resources("aws_s3_bucket_policy")
+	tf.has_wildcard_principal_without_condition(r.block)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("S3 bucket policy %q allows Principal=\"*\" without a limiting Condition.", [r.name]),
+		"artifact_uri": r.path,
+		"severity": "high",
+		"level": "error",
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }

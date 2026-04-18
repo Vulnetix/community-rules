@@ -1,40 +1,44 @@
-package rules.rds_multi_az
+# Adapted from https://github.com/cigna/confectionery
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-# Advanced rules typically use functions from the `fugue` library.
-import data.fugue
+package vulnetix.rules.cigna_tf_aws_rds_03
 
-# We mark an advanced rule by setting `resource_type` to `MULTIPLE`.
-resource_type = "MULTIPLE"
+import rego.v1
 
-rds_instance = fugue.resources("aws_db_instance")
+import data.vulnetix.cigna.tf
 
-is_multi_az(resource) {
-	resource.multi_az
-	resource.multi_az == true
+metadata := {
+	"id": "CIGNA-TF-AWS-RDS-03",
+	"name": "RDS DB instances must enable Multi-AZ",
+	"description": "aws_db_instance must set multi_az = true unless the engine is Aurora, SQL Server, or DocumentDB.",
+	"help_uri": "https://github.com/cigna/confectionery/tree/main/rules/terraform/aws/rds",
+	"languages": ["terraform", "hcl"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": [],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "aws", "rds", "availability"],
 }
 
-is_multi_az(resource) {
-	startswith(resource.engine, "aurora")
+findings contains finding if {
+	some r in tf.resources("aws_db_instance")
+	not _is_multi_az(r.block)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("RDS instance %q does not enable multi_az.", [r.name]),
+		"artifact_uri": r.path,
+		"severity": "medium",
+		"level": "warning",
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }
 
-is_multi_az(resource) {
-	startswith(resource.engine, "sqlserver")
-}
-
-is_multi_az(resource) {
-	startswith(resource.engine, "docdb")
-}
-
-# Regula expects advanced rules to contain a `policy` rule that holds a set
-# of _judgements_.
-policy[p] {
-	resource = rds_instance[_]
-	is_multi_az(resource)
-	p = fugue.allow_resource(resource)
-}
-
-policy[p] {
-	resource = rds_instance[_]
-	not is_multi_az(resource)
-	p = fugue.deny_resource_with_message(resource, "All RDS database instances should have MultiAZ enabled except AuroraDB, SQLServer, and DocumentDB.")
-}
+_is_multi_az(block) if tf.bool_attr(block, "multi_az") == true
+_is_multi_az(block) if startswith(tf.string_attr(block, "engine"), "aurora")
+_is_multi_az(block) if startswith(tf.string_attr(block, "engine"), "sqlserver")
+_is_multi_az(block) if startswith(tf.string_attr(block, "engine"), "docdb")

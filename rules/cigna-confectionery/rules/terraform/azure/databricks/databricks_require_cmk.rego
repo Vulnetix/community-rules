@@ -1,31 +1,40 @@
-# Databricks Require CMK: Deny Databrick workspace resources that do not require CMK 
-# This rule denies databricks workspace resources from being created that do not require CMK to encrypt the databricks data plane for premium SKU workspaces
-package rules.databricks_require_cmk
+# Adapted from https://github.com/cigna/confectionery
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-import data.fugue
+package vulnetix.rules.cigna_tf_az_dbx_01
 
-resource_type = "MULTIPLE"
+import rego.v1
 
-databricks_workspaces = fugue.resources("azurerm_databricks_workspace")
+import data.vulnetix.cigna.tf
 
-# Ensures a given databricks workspace enables CMK encryption on the databricks hosted data plane
-requires_cmk(resource) {
-	resource.customer_managed_key_enabled == true
+metadata := {
+	"id": "CIGNA-TF-AZ-DBX-01",
+	"name": "Databricks premium workspaces must enable customer-managed key encryption",
+	"description": "azurerm_databricks_workspace on sku = premium must set customer_managed_key_enabled = true.",
+	"help_uri": "https://github.com/cigna/confectionery/tree/main/rules/terraform/azure/databricks",
+	"languages": ["terraform", "hcl"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-311"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "azure", "databricks", "encryption"],
 }
 
-# OR is a databricks workspace is not on a "premium" plan, then the customer_managed_key_enabled is not available.  These workspaces should pass
-requires_cmk(resource) {
-	resource.sku != "premium"
-}
-
-policy[p] {
-	resource = databricks_workspaces[_]
-	requires_cmk(resource)
-	p = fugue.allow_resource(resource)
-}
-
-policy[p] {
-	resource = databricks_workspaces[_]
-	not requires_cmk(resource)
-	p = fugue.deny_resource_with_message(resource, "Databricks workspace resources must require CMK encryption with the customer_managed_key_enabled attribute enabled for all 'premium' SKU names.")
+findings contains finding if {
+	some r in tf.resources("azurerm_databricks_workspace")
+	tf.string_attr(r.block, "sku") == "premium"
+	not tf.bool_attr(r.block, "customer_managed_key_enabled") == true
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("Databricks premium workspace %q has no customer_managed_key_enabled = true.", [r.name]),
+		"artifact_uri": r.path,
+		"severity": "medium",
+		"level": "warning",
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }

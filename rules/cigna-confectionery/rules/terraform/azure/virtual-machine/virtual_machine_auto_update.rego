@@ -1,53 +1,57 @@
-# Virtual Machine Auto Update: Deny VM resources that do not leverage automatic updates
-# This rule denies VM resources from being created that do not utilize the required patching strategy for a given Windows or Linux VM
-package rules.virtual_machine_auto_update
+# Adapted from https://github.com/cigna/confectionery
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-import data.fugue
+package vulnetix.rules.cigna_tf_az_vm_01
 
-resource_type = "MULTIPLE"
+import rego.v1
 
-windows_vm = fugue.resources("azurerm_windows_virtual_machine")
+import data.vulnetix.cigna.tf
 
-linux_vm = fugue.resources("azurerm_linux_virtual_machine")
-
-# If the Windows VM can use the 'AutomaticByPlatform' patch mode, it must
-uses_auto_update_windows(resource) {
-	resource.patch_mode == "AutomaticByPlatform"
+metadata := {
+	"id": "CIGNA-TF-AZ-VM-01",
+	"name": "VMs must enable automatic updates",
+	"description": "Windows VMs must set patch_mode = \"AutomaticByPlatform\" or enable_automatic_updates = true; Linux VMs must set patch_mode = \"AutomaticByPlatform\".",
+	"help_uri": "https://github.com/cigna/confectionery/tree/main/rules/terraform/azure/virtual-machine",
+	"languages": ["terraform", "hcl"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-1104"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "azure", "virtual-machine", "patching"],
 }
 
-# If the Windows VM can't use the 'AutomaticByPlatform' patch mode, it must at least use 'enable_automatic_updates' 
-uses_auto_update_windows(resource) {
-	resource.enable_automatic_updates
+findings contains finding if {
+	some r in tf.resources("azurerm_windows_virtual_machine")
+	not _windows_auto_updated(r.block)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("Windows VM %q does not enable automatic updates.", [r.name]),
+		"artifact_uri": r.path,
+		"severity": "medium",
+		"level": "warning",
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }
 
-uses_auto_update_linux(resource) {
-	resource.patch_mode == "AutomaticByPlatform"
+findings contains finding if {
+	some r in tf.resources("azurerm_linux_virtual_machine")
+	not tf.string_attr(r.block, "patch_mode") == "AutomaticByPlatform"
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("Linux VM %q does not set patch_mode = AutomaticByPlatform.", [r.name]),
+		"artifact_uri": r.path,
+		"severity": "medium",
+		"level": "warning",
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }
 
-# WINDOWS VM auto update policies
-policy[p] {
-	windows = windows_vm[_]
-	uses_auto_update_windows(windows)
-	p = fugue.allow_resource(windows)
-}
+_windows_auto_updated(block) if tf.string_attr(block, "patch_mode") == "AutomaticByPlatform"
 
-policy[p] {
-	windows = windows_vm[_]
-	not uses_auto_update_windows(windows)
-	msg = sprintf("Windows virtual machines must utilize the 'AutomaticByPlatform' patch mode.  Check to see if your image '%s' is on of the supported Windows images: https://docs.microsoft.com/en-us/azure/virtual-machines/automatic-vm-guest-patching#supported-os-images.  If not you must leverage the 'enable_automatic_updates' feature in your Windows VM.", [windows.source_image_reference])
-	p = fugue.deny_resource_with_message(windows, msg)
-}
-
-# LINUX VM auto update policies
-policy[p] {
-	linux = linux_vm[_]
-	uses_auto_update_linux(linux)
-	p = fugue.allow_resource(linux)
-}
-
-policy[p] {
-	linux = linux_vm[_]
-	not uses_auto_update_linux(linux)
-	msg = sprintf("Linux virtual machines must utilize the 'AutomaticByPlatform' patch mode.  Check to see if your image '%s' is on of the supported auto update Linux images: https://docs.microsoft.com/en-us/azure/virtual-machines/automatic-vm-guest-patching#supported-os-images", [linux.source_image_reference])
-	p = fugue.deny_resource_with_message(linux, msg)
-}
+_windows_auto_updated(block) if tf.bool_attr(block, "enable_automatic_updates") == true

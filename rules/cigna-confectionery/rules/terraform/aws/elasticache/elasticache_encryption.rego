@@ -1,39 +1,44 @@
-# Elasticache encryption file validation: Deny if elasticache replication groups do not have encryption at-rest and in-transit.
-package rules.elasticache_encryption
+# Adapted from https://github.com/cigna/confectionery
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-# Advanced rules typically use functions from the `fugue` library.
-import data.fugue
+package vulnetix.rules.cigna_tf_aws_ec_01
 
-# We mark an advanced rule by setting `resource_type` to `MULTIPLE`.
-resource_type = "MULTIPLE"
+import rego.v1
 
-# `fugue.resources` is a function that allows querying for resources of a
-# specific type.  In our case, we are just going to ask for the EBS volumes
-# again.
+import data.vulnetix.cigna.tf
 
-# Gather all elasticache replications groups in terraform template
-elasticache_replication_group = fugue.resources("aws_elasticache_replication_group")
-
-# Auxiliary function.
-# Checks that the replication group has at_rest and in_transit encryption enabled
-is_valid(resource) {
-	resource.at_rest_encryption_enabled == true
-	resource.transit_encryption_enabled == true
+metadata := {
+	"id": "CIGNA-TF-AWS-EC-01",
+	"name": "ElastiCache replication groups must enable encryption at rest and in transit",
+	"description": "aws_elasticache_replication_group must set at_rest_encryption_enabled and transit_encryption_enabled to true.",
+	"help_uri": "https://github.com/cigna/confectionery/tree/main/rules/terraform/aws/elasticache",
+	"languages": ["terraform", "hcl"],
+	"severity": "high",
+	"level": "error",
+	"kind": "iac",
+	"cwe": ["CWE-311"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "aws", "elasticache", "encryption"],
 }
 
-# Regula expects advanced rules to contain a `policy` rule that holds a set
-# of _judgements_.
-
-# Allows the resource if is_valid method returns true
-policy[p] {
-	resource = elasticache_replication_group[_]
-	is_valid(resource)
-	p = fugue.allow_resource(resource)
+findings contains finding if {
+	some r in tf.resources("aws_elasticache_replication_group")
+	not _fully_encrypted(r.block)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("Elasticache replication group %q is missing at-rest or in-transit encryption.", [r.name]),
+		"artifact_uri": r.path,
+		"severity": "high",
+		"level": "error",
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }
 
-# Denies the resource and presents custom message if is_valid method returns false
-policy[p] {
-	resource = elasticache_replication_group[_]
-	not is_valid(resource)
-	p = fugue.deny_resource_with_message(resource, "Elasticache Replication groups must have encryption at rest and in transit.")
+_fully_encrypted(block) if {
+	tf.bool_attr(block, "at_rest_encryption_enabled") == true
+	tf.bool_attr(block, "transit_encryption_enabled") == true
 }

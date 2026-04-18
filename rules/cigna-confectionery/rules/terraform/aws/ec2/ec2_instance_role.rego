@@ -1,29 +1,39 @@
-# EC2 Instance Role: All instances should have an IAM role via an instance profile.
-# This allows cloudwatch logging and ssm to work which are foundational requirements.
-package rules.ec2_instance_role
+# Adapted from https://github.com/cigna/confectionery
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-import data.fugue
+package vulnetix.rules.cigna_tf_aws_ec2_01
 
-resource_type = "MULTIPLE"
+import rego.v1
 
-# Grab every aws ec2 instance in template
-ec2_instance = fugue.resources("aws_instance")
+import data.vulnetix.cigna.tf
 
-# EC2 is invalid if an iam_instance_profile is null
-is_invalid_ec2(resource) {
-	resource.iam_instance_profile == null
+metadata := {
+	"id": "CIGNA-TF-AWS-EC2-01",
+	"name": "EC2 instances must have an IAM instance profile",
+	"description": "aws_instance must set iam_instance_profile so SSM and CloudWatch agents can authenticate.",
+	"help_uri": "https://github.com/cigna/confectionery/tree/main/rules/terraform/aws/ec2",
+	"languages": ["terraform", "hcl"],
+	"severity": "low",
+	"level": "note",
+	"kind": "iac",
+	"cwe": [],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "aws", "ec2", "iam"],
 }
 
-# Deny resource if ec2 instance does not have an iam instance profile
-policy[p] {
-	resource = ec2_instance[_]
-	is_invalid_ec2(resource)
-	p = fugue.deny_resource_with_message(resource, "All EC2 instances must have an iam instance profile.")
-}
-
-# Allow resource if ec2 instance does have an iam instance profile
-policy[p] {
-	resource = ec2_instance[_]
-	not is_invalid_ec2(resource)
-	p = fugue.allow_resource(resource)
+findings contains finding if {
+	some r in tf.resources("aws_instance")
+	not tf.has_key(r.block, "iam_instance_profile")
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("EC2 instance %q has no iam_instance_profile.", [r.name]),
+		"artifact_uri": r.path,
+		"severity": "low",
+		"level": "note",
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }

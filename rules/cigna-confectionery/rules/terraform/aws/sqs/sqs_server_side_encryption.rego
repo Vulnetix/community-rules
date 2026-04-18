@@ -1,32 +1,39 @@
-package rules.sqs_server_side_encryption
+# Adapted from https://github.com/cigna/confectionery
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-# Advanced rules typically use functions from the `fugue` library.
-import data.fugue
+package vulnetix.rules.cigna_tf_aws_sqs_02
 
-# We mark an advanced rule by setting `resource_type` to `MULTIPLE`.
-resource_type = "MULTIPLE"
+import rego.v1
 
-# `fugue.resources` is a function that allows querying for resources of a
-# specific type.  In our case, we are just going to ask for the EBS volumes
-# again.
-aws_sqs_queue = fugue.resources("aws_sqs_queue")
+import data.vulnetix.cigna.tf
 
-# Auxiliary function.
-#sqs queue encryption is enabled if KmsMasterKeyId exists
-is_not_null(resource) {
-	not resource.kms_master_key_id == null
+metadata := {
+	"id": "CIGNA-TF-AWS-SQS-02",
+	"name": "SQS queues must enable server-side encryption",
+	"description": "aws_sqs_queue must set kms_master_key_id.",
+	"help_uri": "https://github.com/cigna/confectionery/tree/main/rules/terraform/aws/sqs",
+	"languages": ["terraform", "hcl"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": ["CWE-311"],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "aws", "sqs", "encryption"],
 }
 
-# Regula expects advanced rules to contain a `policy` rule that holds a set
-# of _judgements_.
-policy[p] {
-	resource = aws_sqs_queue[_]
-	is_not_null(resource)
-	p = fugue.allow_resource(resource)
-}
-
-policy[p] {
-	resource = aws_sqs_queue[_]
-	not is_not_null(resource)
-	p = fugue.deny_resource_with_message(resource, "Deny SQS queues that do not have server side encryption.")
+findings contains finding if {
+	some r in tf.resources("aws_sqs_queue")
+	not tf.has_key(r.block, "kms_master_key_id")
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("SQS queue %q has no kms_master_key_id.", [r.name]),
+		"artifact_uri": r.path,
+		"severity": "medium",
+		"level": "warning",
+		"start_line": 1,
+		"snippet": sprintf("%s.%s", [r.type, r.name]),
+	}
 }
