@@ -1,35 +1,47 @@
-# Prevent specified providers from being used
+# Adapted from https://github.com/Scalr/sample-tf-opa-policies
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-package terraform
+package vulnetix.rules.scalr_blacklist_provider
 
-import input.tfplan as tfplan
+import rego.v1
 
-# Blacklisted Terraform providers
-not_allowed_provider = [
-  "azurerm"
-]
+import data.vulnetix.scalr.tf
 
-
-array_contains(arr, elem) {
-  arr[_] = elem
+metadata := {
+	"id": "SCALR-PROV-0001",
+	"name": "Denied Terraform providers must not be declared",
+	"description": "`provider \"<name>\" { ... }` must not reference any entry in `_blacklist`.",
+	"help_uri": "",
+	"languages": ["terraform"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": [],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "providers"],
 }
 
-get_basename(path) = basename{
-    arr := split(path, "/")
-    basename:= arr[count(arr)-1]
-}
+_blacklist := {"azurerm"}
 
-deny[reason] {
-    resource := tfplan.resource_changes[_]
-    action := resource.change.actions[count(resource.change.actions) - 1]
-    array_contains(["create", "update"], action)  # allow destroy action
-
-    # registry.terraform.io/hashicorp/aws -> aws
-    provider_name := get_basename(resource.provider_name)
-    array_contains(not_allowed_provider, provider_name)
-
-    reason := sprintf(
-        "%s: provider type %q is not allowed",
-        [resource.address, provider_name]
-    )
+findings contains finding if {
+	some path, content in input.file_contents
+	tf.is_tf(path)
+	matches := regex.find_n(`provider\s+"([^"]+)"`, content, -1)
+	some m in matches
+	caps := regex.find_n(`"([^"]+)"`, m, 1)
+	count(caps) > 0
+	name := trim(caps[0], `"`)
+	_blacklist[name]
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("Provider %q is not allowed.", [name]),
+		"artifact_uri": path,
+		"severity": "medium",
+		"level": "warning",
+		"start_line": 1,
+		"snippet": m,
+	}
 }

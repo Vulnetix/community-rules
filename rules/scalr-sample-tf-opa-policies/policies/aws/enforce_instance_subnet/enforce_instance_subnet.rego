@@ -1,43 +1,63 @@
-# Enforces the use of specific subnets on EC2 instances
-# This policy first checks that a subnet_id has been specified, i.e. not default for an AZ
+# Adapted from https://github.com/Scalr/sample-tf-opa-policies
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-package terraform 
+package vulnetix.rules.scalr_enforce_instance_subnet
 
-import input.tfplan as tfplan
+import rego.v1
 
-# Add only private subnets to this list.
-# NOTE: OPA cannot validate that a subnet is private unless the terraform config is actaully creating the subnet.
-allowed_subnets = [
-    "subnet-019c416174b079502",
-    "subnet-04dbded374ed11690"
-  ]
+import data.vulnetix.scalr.tf
 
-array_contains(arr, elem) {
-  arr[_] = elem
+metadata := {
+	"id": "SCALR-AWS-0005",
+	"name": "EC2 instances must pin subnet_id to an allow-listed private subnet",
+	"description": "An `aws_instance` must declare `subnet_id`, and the value must be in `_allowed_subnets`.",
+	"help_uri": "https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/instance#subnet_id",
+	"languages": ["terraform"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": [],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["aws", "ec2", "vpc"],
 }
 
-# Check that subnet has been specified
-deny[reason] {
-    r = tfplan.resource_changes[_]
-    r.mode == "managed"
-    r.type == "aws_instance"
-    true == r.change.after_unknown.subnet_id
-
-    reason := sprintf(
-      "%-40s :: subnet_id must be specied in terraform configuration.",
-      [r.address]
-    )
+_allowed_subnets := {
+	"subnet-019c416174b079502",
+	"subnet-04dbded374ed11690",
 }
 
-# Check subnet is in allowed list for EC2 instances
-deny[reason] {
-    r = tfplan.resource_changes[_]
-    r.mode == "managed"
-    r.type == "aws_instance"
-    not array_contains(allowed_subnets, r.change.after.subnet_id)
+findings contains finding if {
+	some path, content in input.file_contents
+	tf.is_tf(path)
+	some block in tf.resource_blocks(content, "aws_instance")
+	not regex.match(`(?m)^\s*subnet_id\s*=`, block)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("aws_instance %q does not declare subnet_id.", [tf.resource_name(block)]),
+		"artifact_uri": path,
+		"severity": "medium",
+		"level": "warning",
+		"start_line": 1,
+		"snippet": tf.resource_address(block),
+	}
+}
 
-    reason := sprintf(
-      "%-40s :: subnet_id '%s' is public and not allowed",
-      [r.address, r.change.after.subnet_id]
-    )
+findings contains finding if {
+	some path, content in input.file_contents
+	tf.is_tf(path)
+	some block in tf.resource_blocks(content, "aws_instance")
+	subnet := tf.string_attr(block, "subnet_id")
+	not _allowed_subnets[subnet]
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("aws_instance %q subnet_id %q is not in the allow-list.", [tf.resource_name(block), subnet]),
+		"artifact_uri": path,
+		"severity": "medium",
+		"level": "warning",
+		"start_line": 1,
+		"snippet": subnet,
+	}
 }

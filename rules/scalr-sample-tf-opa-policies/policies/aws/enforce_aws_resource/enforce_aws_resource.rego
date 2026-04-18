@@ -1,36 +1,49 @@
-# Implements an allowed list of resource types.
-#
-# NOTE: This policy would also prevent the use of all providers except AWS.
-#       To allow other clouds with no restrictions on resource types add the following line to the rule
-#       before "not array_contains..."
-#
-#       startswith(resources.type,"aws_")
+# Adapted from https://github.com/Scalr/sample-tf-opa-policies
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-package terraform
+package vulnetix.rules.scalr_enforce_aws_resource
 
-import input.tfplan as tfplan
+import rego.v1
 
-# Allowed Terraform resources
-allowed_resources = [
-  "aws_security_group",
-  "aws_instance",
-  "aws_s3_bucket"
-]
+import data.vulnetix.scalr.tf
 
-
-array_contains(arr, elem) {
-  arr[_] = elem
+metadata := {
+	"id": "SCALR-AWS-0001",
+	"name": "Only allow-listed Terraform resource types may be declared",
+	"description": "Resources must match one of `_allowed_resources`; fork and tailor the list to your fleet.",
+	"help_uri": "",
+	"languages": ["terraform"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": [],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "governance"],
 }
 
-deny[reason] {
-    resource := tfplan.resource_changes[_]
-    action := resource.change.actions[count(resource.change.actions) - 1]
-    array_contains(["create", "update"], action)  # allow destroy action
+_allowed_resources := {
+	"aws_security_group",
+	"aws_instance",
+	"aws_s3_bucket",
+}
 
-    not array_contains(allowed_resources, resource.type)
-
-    reason := sprintf(
-        "%s: resource type %q is not allowed",
-        [resource.address, resource.type]
-    )
+findings contains finding if {
+	some path, content in input.file_contents
+	tf.is_tf(path)
+	blocks := regex.find_n(`(?s)resource\s+"([^"]+)"\s+"[^"]+"\s*\{(?:[^{}]|\{(?:[^{}]|\{[^{}]*\})*\})*?\}`, content, -1)
+	some block in blocks
+	t := tf.resource_type(block)
+	not _allowed_resources[t]
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("Resource type %q is not in the allow-list.", [t]),
+		"artifact_uri": path,
+		"severity": "medium",
+		"level": "warning",
+		"start_line": 1,
+		"snippet": tf.resource_address(block),
+	}
 }

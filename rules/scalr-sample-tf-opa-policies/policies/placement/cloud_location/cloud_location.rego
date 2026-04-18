@@ -1,61 +1,78 @@
-# Enforce a list of allowed locations / availability zones for each provider
+# Adapted from https://github.com/Scalr/sample-tf-opa-policies
+# Ported to the Vulnetix Rego input schema (input.file_contents).
+#
+# Upstream pulled provider regions from the plan configuration tree. Under
+# text scanning we check the AWS `provider "aws" { region = "..." }` block,
+# the azurerm resource `location` attribute, and the google resource `zone`
+# attribute — each against its provider-specific allow-list.
 
-package terraform
+package vulnetix.rules.scalr_cloud_location
 
-import input.tfplan as tfplan
+import rego.v1
 
+import data.vulnetix.scalr.tf
 
-allowed_locations = {
-    "aws": ["us-east-1", "us-east-2"],
-    "azurerm": ["eastus", "eastus2"],
-    "google": ["us-central1-a", "us-central1-b", "us-west1-a"]
+metadata := {
+	"id": "SCALR-PLACE-0001",
+	"name": "Cloud resources must be placed in approved regions/zones",
+	"description": "AWS `provider \"aws\" { region }`, Azure `location`, and GCP `zone` values must fall within per-provider allow-lists.",
+	"help_uri": "",
+	"languages": ["terraform"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": [],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "placement", "governance"],
 }
 
+_aws_regions := {"us-east-1", "us-east-2"}
 
-array_contains(arr, elem) {
-  arr[_] = elem
+_azure_locations := {"eastus", "eastus2"}
+
+_gcp_zones := {"us-central1-a", "us-central1-b", "us-west1-a"}
+
+findings contains finding if {
+	some path, content in input.file_contents
+	tf.is_tf(path)
+	blocks := regex.find_n(`(?s)provider\s+"aws"\s*\{(?:[^{}]|\{[^{}]*\})*?\}`, content, -1)
+	some block in blocks
+	region := tf.string_attr(block, "region")
+	not _aws_regions[region]
+	finding := _place_finding(path, sprintf("provider.aws (region=%s)", [region]), region)
 }
 
-get_basename(path) = basename{
-    arr := split(path, "/")
-    basename:= arr[count(arr)-1]
+findings contains finding if {
+	some path, content in input.file_contents
+	tf.is_tf(path)
+	azure_types := regex.find_n(`(?s)resource\s+"azurerm_[^"]+"\s+"[^"]+"\s*\{(?:[^{}]|\{(?:[^{}]|\{[^{}]*\})*\})*?\}`, content, -1)
+	some block in azure_types
+	location := tf.string_attr(block, "location")
+	not _azure_locations[location]
+	finding := _place_finding(path, tf.resource_address(block), location)
 }
 
-eval_expression(plan, expr) = constant_value {
-    constant_value := expr.constant_value
-} else = reference {
-    ref = expr.references[0]
-    startswith(ref, "var.")
-    var_name := replace(ref, "var.", "")
-    reference := plan.variables[var_name].value
+findings contains finding if {
+	some path, content in input.file_contents
+	tf.is_tf(path)
+	google_types := regex.find_n(`(?s)resource\s+"google_[^"]+"\s+"[^"]+"\s*\{(?:[^{}]|\{(?:[^{}]|\{[^{}]*\})*\})*?\}`, content, -1)
+	some block in google_types
+	zone := tf.string_attr(block, "zone")
+	not _gcp_zones[zone]
+	finding := _place_finding(path, tf.resource_address(block), zone)
 }
 
-get_location(resource, plan) = aws_region {
-    # registry.terraform.io/hashicorp/aws -> aws
-    provider_name := get_basename(resource.provider_name)
-    "aws" == provider_name
-    provider := plan.configuration.provider_config[_]
-    "aws" = provider.name
-    region_expr := provider.expressions.region
-    aws_region := eval_expression(plan, region_expr)
-} else = azure_location {
-    provider_name := get_basename(resource.provider_name)
-    "azurerm" == provider_name
-    azure_location := resource.change.after.location
-} else = google_zone {
-    provider_name := get_basename(resource.provider_name)
-    "google" == provider_name
-    google_zone := resource.change.after.zone
-}
-
-deny[reason] {
-    resource := tfplan.resource_changes[_]
-    location := get_location(resource, tfplan)
-    provider_name := get_basename(resource.provider_name)
-    not array_contains(allowed_locations[provider_name], location)
-
-    reason := sprintf(
-        "%s: location %q is not allowed",
-        [resource.address, location]
-    )
+_place_finding(path, address, location) := finding if {
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("%s uses location %q which is not in the allow-list.", [address, location]),
+		"artifact_uri": path,
+		"severity": "medium",
+		"level": "warning",
+		"start_line": 1,
+		"snippet": location,
+	}
 }

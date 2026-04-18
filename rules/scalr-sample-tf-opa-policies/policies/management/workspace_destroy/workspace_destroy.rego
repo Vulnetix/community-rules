@@ -1,14 +1,26 @@
-# Enforces that workspaces are tagged with the names of the providers.
+# Adapted from https://github.com/Scalr/sample-tf-opa-policies
+# NOTE: Upstream depends on Scalr plan-action metadata (resource.change.actions)
+# and `scalr_workspace` state — not derivable from static Terraform source.
 
-package terraform
+package vulnetix.rules.scalr_workspace_destroy
 
-import input.tfplan as tfplan
+import rego.v1
 
-
-deny["Can not destroy workspace with active state"] {
-    resource := tfplan.resource_changes[_]
-    "delete" == resource.change.actions[count(resource.change.actions) - 1]
-    "scalr_workspace" == resource.type
-
-    resource.change.before.has_resources
+metadata := {
+	"id": "SCALR-MGMT-0008",
+	"name": "Cannot destroy Scalr workspace with active state (no-op under text scanning)",
+	"description": "Upstream requires plan-action metadata; not applicable to file-scanning mode.",
+	"help_uri": "https://github.com/Scalr/sample-tf-opa-policies",
+	"languages": ["terraform"],
+	"severity": "low",
+	"level": "note",
+	"kind": "iac",
+	"cwe": [],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["scalr-runtime", "workspace"],
 }
+
+findings := set()

@@ -1,75 +1,29 @@
-# Restricts IAM roles for provider and workspace
+# Adapted from https://github.com/Scalr/sample-tf-opa-policies
+# NOTE: Upstream depends on Scalr runtime metadata (input.tfrun.workspace.name)
+# and the plan configuration tree (input.tfplan.configuration.provider_config)
+# — neither is available under Vulnetix text scanning, so this port declares
+# metadata but never emits findings. Retain the file so the loader still sees
+# a valid rule and can be re-wired when a Scalr adapter is added.
 
-package terraform
-import input.tfplan as tfplan
-import input.tfrun as tfrun
+package vulnetix.rules.scalr_enforce_aws_iam_and_workspace
 
+import rego.v1
 
-allowed_roles_map := {
-    "arn:aws:iam::4423:role/dev": [
-        "test-",
-        "qa-",
-        "staging-",
-        "dev-"
-    ],
-    "arn:aws:iam::4422:role/release_admin": [
-       "prod-",
-       "demo-",
-       "test-",
-       "qa-",
-       "staging-",
-       "dev-"
-    ]
+metadata := {
+	"id": "SCALR-AWS-0012",
+	"name": "AWS IAM role must match workspace naming (no-op under text scanning)",
+	"description": "Upstream requires Scalr runtime workspace metadata; not applicable to file-scanning mode.",
+	"help_uri": "https://github.com/Scalr/sample-tf-opa-policies",
+	"languages": ["terraform"],
+	"severity": "low",
+	"level": "note",
+	"kind": "iac",
+	"cwe": [],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["aws", "iam", "scalr-runtime"],
 }
 
-eval_expression(plan, expr) = constant_value {
-    constant_value := expr.constant_value
-} else = reference {
-    ref = expr.references[0]
-    startswith(ref, "var.")
-    var_name := replace(ref, "var.", "")
-    reference := plan.variables[var_name].value
-}
-
-array_contains(arr, value) = true {
-    arr[_] == value
-}
-
-# Extracts provider configs for AWS from the input
-aws_provider_aliases[alias] = provider {
-    provider := tfplan.configuration.provider_config[alias]
-    provider.name == "aws"
-}
-
-# Creates a map of providers to role arn from AWS list created above
-providers_roles_arn[alias] = role_arn {
-    provider := aws_provider_aliases[alias]
-    role_arn := eval_expression(tfplan, provider.expressions.assume_role[0].role_arn)
-}
-
-# Check the role in the provider against the allowed list for each provider in the input
-deny[reason] {
-    role_arn := providers_roles_arn[alias]
-    # Creates an array of allowed_roles from keys of the map
-    allowed_roles := [key | allowed_roles_map[key]]
-    not array_contains(allowed_roles, role_arn)
-    reason := sprintf(
-        "%s: AWS provider with role %q is not allowed",
-        [alias, role_arn]
-    )
-}
-
-# Uses the map to match workspaces to roles. Only workspaces containing elements of the map for a given
-# role will be allowed.
-deny[reason] {
-    role_arn := providers_roles_arn[alias]
-    workspaces := allowed_roles_map[key]
-    role_arn == key
-    workspace_name := tfrun.workspace.name
-    count([ws_pattern | ws_pattern := workspaces[_]; contains(workspace_name, ws_pattern)]) == 0
-
-    reason := sprintf(
-        "%s: Workspace %q is not allowed to use role %q",
-        [alias, workspace_name, role_arn]
-    )
-}
+findings := set()

@@ -1,46 +1,57 @@
-# Enforces a set of required tag keys. Values are bot checked
+# Adapted from https://github.com/Scalr/sample-tf-opa-policies
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-package terraform
+package vulnetix.rules.scalr_required_tags
 
-import input.tfplan as tfplan
+import rego.v1
 
+import data.vulnetix.scalr.tf
 
-required_tags = ["owner", "department"]
-
-
-array_contains(arr, elem) {
-  arr[_] = elem
+metadata := {
+	"id": "SCALR-MGMT-0006",
+	"name": "Resources must declare required organizational tags/labels",
+	"description": "Any resource block whose provider uses `tags` (AWS, Azure) or `labels` (GCP) must declare every key in `_required_tags`.",
+	"help_uri": "",
+	"languages": ["terraform"],
+	"severity": "low",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": [],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "tagging", "governance"],
 }
 
-get_basename(path) = basename{
-    arr := split(path, "/")
-    basename:= arr[count(arr)-1]
+_required_tags := ["owner", "department"]
+
+findings contains finding if {
+	some path, content in input.file_contents
+	tf.is_tf(path)
+	blocks := regex.find_n(`(?s)resource\s+"[^"]+"\s+"[^"]+"\s*\{(?:[^{}]|\{(?:[^{}]|\{[^{}]*\})*\})*?\}`, content, -1)
+	some block in blocks
+	_declares_tags(block)
+	missing := _missing(block)
+	count(missing) > 0
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("%s is missing required tag(s)/label(s): %v.", [tf.resource_address(block), missing]),
+		"artifact_uri": path,
+		"severity": "low",
+		"level": "warning",
+		"start_line": 1,
+		"snippet": tf.resource_address(block),
+	}
 }
 
-# Extract the tags catering for Google where they are called "labels"
-get_tags(resource) = labels {
-    # registry.terraform.io/hashicorp/google -> google
-    provider_name := get_basename(resource.provider_name)
-    "google" == provider_name
-    labels := resource.change.after.labels
-} else = tags {
-    tags := resource.change.after.tags
-} else = empty {
-    empty := {}
-}
+_declares_tags(block) if regex.match(`(?s)\btags\s*=\s*\{`, block)
 
-deny[reason] {
-    resource := tfplan.resource_changes[_]
-    action := resource.change.actions[count(resource.change.actions) - 1]
-    array_contains(["create", "update"], action)
-    tags := get_tags(resource)
-    # creates an array of the existing tag keys
-    existing_tags := [ key | tags[key] ]
-    required_tag := required_tags[_]
-    not array_contains(existing_tags, required_tag)
+_declares_tags(block) if regex.match(`(?s)\blabels\s*=\s*\{`, block)
 
-    reason := sprintf(
-        "%s: missing required tag %q",
-        [resource.address, required_tag]
-    )
+_missing(block) := missing if {
+	missing := [tag |
+		some tag in _required_tags
+		not regex.match(sprintf(`(?m)"?%s"?\s*[:=]`, [tag]), block)
+	]
 }

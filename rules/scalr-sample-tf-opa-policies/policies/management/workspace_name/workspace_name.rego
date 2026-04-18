@@ -1,10 +1,25 @@
-# Checks the worksoace name for a specific suffix.
+# Adapted from https://github.com/Scalr/sample-tf-opa-policies
+# NOTE: Upstream depends on Scalr runtime workspace.name metadata.
 
-package terraform
+package vulnetix.rules.scalr_workspace_name
 
-import input.tfrun as tfrun
+import rego.v1
 
-
-deny["Forbidden workspace name"] {
-    not endswith(tfrun.workspace.name, "-dev")
+metadata := {
+	"id": "SCALR-MGMT-0010",
+	"name": "Workspace name suffix must be `-dev` (no-op under text scanning)",
+	"description": "Upstream requires Scalr workspace runtime metadata; not applicable to file-scanning mode.",
+	"help_uri": "https://github.com/Scalr/sample-tf-opa-policies",
+	"languages": ["terraform"],
+	"severity": "low",
+	"level": "note",
+	"kind": "iac",
+	"cwe": [],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["scalr-runtime", "workspace"],
 }
+
+findings := set()

@@ -1,30 +1,26 @@
-package terraform
+# Adapted from https://github.com/Scalr/sample-tf-opa-policies
+# NOTE: Upstream depends on Scalr runtime identity (input.tfrun.created_by.username,
+# input.tfrun.vcs.commit.author.email). Not derivable from Terraform source.
 
-import input.tfplan as tfplan
-import input.tfrun as tfrun
+package vulnetix.rules.scalr_check_user
 
+import rego.v1
 
-allowed_cli_users = ["d.johnson", "j.smith"]
-
-
-array_contains(arr, elem) {
-  arr[_] = elem
+metadata := {
+	"id": "SCALR-USER-0001",
+	"name": "Run initiator must be allow-listed (no-op under text scanning)",
+	"description": "Upstream requires Scalr user/VCS runtime metadata; not applicable to file-scanning mode.",
+	"help_uri": "https://github.com/Scalr/sample-tf-opa-policies",
+	"languages": ["terraform"],
+	"severity": "low",
+	"level": "note",
+	"kind": "iac",
+	"cwe": [],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["scalr-runtime", "user"],
 }
 
-get_basename(path) = basename{
-    arr := split(path, "/")
-    basename:= arr[count(arr)-1]
-}
-
-deny["User is not allowed to perform runs from Terraform CLI"] {
-    "cli" == tfrun.source
-    not array_contains(allowed_cli_users, tfrun.created_by.username)
-}
-
-deny["Only commits from authorized authors are allowed to trigger AWS infrastructure update"] {
-    "vcs" == tfrun.source
-    resource := tfplan.resource_changes[_]
-    provider_name := get_basename(resource.provider_name)
-    "aws" == provider_name
-    not endswith(tfrun.vcs.commit.author.email, "-aws-ops@foo.bar")
-}
+findings := set()

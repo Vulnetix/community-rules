@@ -1,27 +1,27 @@
-# This dummy policy makes a decision based on a number received from random.org service
-# just to demonstrate possible usage of HTTP requests
-# to fetch external data during policy evaluation.
-# See <https://www.openpolicyagent.org/docs/latest/policy-reference/#http>
+# Adapted from https://github.com/Scalr/sample-tf-opa-policies
+# NOTE: Upstream is a demo of http.send to random.org. Vulnetix scans offline,
+# so this port declares metadata but never emits findings. Retaining the file
+# preserves attribution and documents why the demo cannot be evaluated here.
 
-package terraform
+package vulnetix.rules.scalr_random_decision
 
+import rego.v1
 
-random_number = num {
-    request := {
-        "url": "https://www.random.org/integers/?num=1&min=0&max=9&base=10&col=1&format=plain",
-        "method": "GET"
-    }
-    response := http.send(request)
-    response.status_code == 200
-    num := to_number(trim(response.raw_body, "\n"))
+metadata := {
+	"id": "SCALR-DEMO-0001",
+	"name": "Demo: external HTTP policy decision (no-op under text scanning)",
+	"description": "Upstream uses http.send to random.org. Vulnetix scans offline, so this port is intentionally non-firing.",
+	"help_uri": "https://github.com/Scalr/sample-tf-opa-policies/blob/master/policies/external_data/random_decision/random_decision.rego",
+	"languages": ["terraform"],
+	"severity": "low",
+	"level": "note",
+	"kind": "iac",
+	"cwe": [],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["demo", "http"],
 }
 
-deny[reason] {
-    number := random_number
-    number < 5
-
-    reason := sprintf(
-        "Unlucky you: got %d, but 5 or more is required",
-        [number]
-    )
-}
+findings := set()

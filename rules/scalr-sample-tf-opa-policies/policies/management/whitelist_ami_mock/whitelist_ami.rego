@@ -1,65 +1,49 @@
-# This policy introduces AMI ids whitelist for AWS instances.
-# There are two rules: the first one disallows the usage of
-# all AMIs that are not from allowed list,
-# while the second rule whitelists only directly (or via variable) specified AMIs
-# thus allowing them to be pulled from aws_ami data source.
-# You will probably want to keep only one rule that is relevant for you, 
-# removing/commenting out another.
+# Adapted from https://github.com/Scalr/sample-tf-opa-policies
+# Ported to the Vulnetix Rego input schema (input.file_contents).
 
-package terraform
+package vulnetix.rules.scalr_whitelist_ami
 
-import input.tfplan as tfplan
+import rego.v1
 
+import data.vulnetix.scalr.tf
 
-# A whitelist of AMI ids
-allowed_amis = [
-  "ami-07d0cf3af28718ef8",
-  "ami-0a9b2a20d7dc001e0"
-]
-
-array_contains(arr, elem) {
-  arr[_] = elem
+metadata := {
+	"id": "SCALR-MGMT-0007",
+	"name": "EC2 AMI IDs must be in the approved allow-list",
+	"description": "Any literal `ami = \"ami-...\"` on `aws_instance` or `aws_launch_template` must appear in `_allowed_amis`. References to `data.aws_ami.*` are permitted.",
+	"help_uri": "",
+	"languages": ["terraform"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": [1104],
+	"capec": [],
+	"attack_technique": ["T1195"],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["aws", "ami", "supply-chain"],
 }
 
-eval_expression(plan, expr) = constant_value {
-    constant_value := expr.constant_value
-} else = reference {
-    ref = expr.references[0]
-    startswith(ref, "var.")
-    var_name := replace(ref, "var.", "")
-    reference := plan.variables[var_name].value
+_allowed_amis := {
+	"ami-07d0cf3af28718ef8",
+	"ami-0a9b2a20d7dc001e0",
 }
 
-get_address(value) = address {
-    address := value.address
-} else = source {
-    source := value.source
-}
-
-# Force all found AMIs to belong to allowed list
-deny[reason] {
-    resource := tfplan.resource_changes[_]
-    action := resource.change.actions[count(resource.change.actions) - 1]
-    array_contains(["create", "update"], action)
-    ami := resource.change.after.ami
-    not array_contains(allowed_amis, ami)
-    reason := sprintf(
-        "%s: AMI %q is not allowed. Expected values are: %v",
-        [resource.address, ami, allowed_amis]
-    )
-}
-
-# Force directly specified AMIs to belong to allowed list,
-# but allow AMIs from data source
-deny[reason] {
-    walk(tfplan.configuration.root_module, [path, value])
-    ami := eval_expression(tfplan, value.expressions.ami)
-    not array_contains(allowed_amis, ami)
-    reason := sprintf(
-`%s: AMI %q is not allowed.
-AMI id should be pulled from aws_ami data source
-or otherwise be one of the allowed ones when specified directly:
-%v`,
-        [get_address(value), ami, allowed_amis]
-    )
+findings contains finding if {
+	some path, content in input.file_contents
+	tf.is_tf(path)
+	some t in ["aws_instance", "aws_launch_template", "aws_launch_configuration"]
+	some block in tf.resource_blocks(content, t)
+	ami := tf.string_attr(block, "ami")
+	startswith(ami, "ami-")
+	not _allowed_amis[ami]
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("%s %q uses AMI %q which is not in the allow-list.", [t, tf.resource_name(block), ami]),
+		"artifact_uri": path,
+		"severity": "medium",
+		"level": "warning",
+		"start_line": 1,
+		"snippet": ami,
+	}
 }

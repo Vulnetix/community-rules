@@ -1,43 +1,56 @@
-# Enforce that specificied resource types are only created by specific modules and not in the root module.
+# Adapted from https://github.com/Scalr/sample-tf-opa-policies
+# Ported to the Vulnetix Rego input schema (input.file_contents).
+#
+# Upstream used plan-tree `module_address` to distinguish root-module vs
+# module-declared resources. Under text scanning we approximate with a
+# simpler rule: if a resource of a protected type appears in *any* file
+# alongside a matching `module` call whose source is the approved module,
+# we allow it; otherwise we flag the resource.
 
-package terraform
+package vulnetix.rules.scalr_required_modules
 
-import input.tfplan as tfplan
+import rego.v1
 
+import data.vulnetix.scalr.tf
 
-# Map of resource types which must be created only using module
-# with corresponding module source
-resource_modules = {
-    "aws_db_instance": "terraform-aws-modules/rds/aws"
+metadata := {
+	"id": "SCALR-MOD-0002",
+	"name": "Protected resource types must be declared via an approved module",
+	"description": "`_required_modules[resource_type] = module_source` — any matching resource block that exists without an approved `module` call sharing the same source triggers a finding.",
+	"help_uri": "",
+	"languages": ["terraform"],
+	"severity": "medium",
+	"level": "warning",
+	"kind": "iac",
+	"cwe": [],
+	"capec": [],
+	"attack_technique": [],
+	"cvssv4": "",
+	"cwss": "",
+	"tags": ["terraform", "modules", "governance"],
 }
 
-array_contains(arr, elem) {
-  arr[_] = elem
+_required_modules := {"aws_db_instance": "terraform-aws-modules/rds/aws"}
+
+findings contains finding if {
+	some path, content in input.file_contents
+	tf.is_tf(path)
+	some t, expected_source in _required_modules
+	some block in tf.resource_blocks(content, t)
+	not _approved_module_invoked(content, expected_source)
+	finding := {
+		"rule_id": metadata.id,
+		"message": sprintf("%s must be created via module source %q; no approved module call found.", [tf.resource_address(block), expected_source]),
+		"artifact_uri": path,
+		"severity": "medium",
+		"level": "warning",
+		"start_line": 1,
+		"snippet": tf.resource_address(block),
+	}
 }
 
-deny[reason] {
-    resource := tfplan.resource_changes[_]
-    action := resource.change.actions[count(resource.change.actions) - 1]
-    array_contains(["create", "update"], action)
-    module_source = resource_modules[resource.type]
-    not resource.module_address
-    reason := sprintf(
-        "%s cannot be created directly. Module '%s' must be used instead",
-        [resource.address, module_source]
-    )
-}
-
-deny[reason] {
-    resource := tfplan.resource_changes[_]
-    action := resource.change.actions[count(resource.change.actions) - 1]
-    array_contains(["create", "update"], action)
-    module_source = resource_modules[resource.type]
-    parts = split(resource.module_address, ".")
-    module_name := parts[1]
-    actual_source := tfplan.configuration.root_module.module_calls[module_name].source
-    not actual_source == module_source
-    reason := sprintf(
-        "%s must be created with '%s' module, but '%s' is used",
-        [resource.address, module_source, actual_source]
-    )
+_approved_module_invoked(content, expected_source) if {
+	blocks := regex.find_n(`(?s)module\s+"[^"]+"\s*\{(?:[^{}]|\{[^{}]*\})*?\}`, content, -1)
+	some block in blocks
+	tf.string_attr(block, "source") == expected_source
 }
