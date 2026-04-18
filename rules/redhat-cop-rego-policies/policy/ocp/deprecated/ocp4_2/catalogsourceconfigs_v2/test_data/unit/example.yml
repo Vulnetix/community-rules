@@ -1,5 +1,0 @@
----
-apiVersion: operators.coreos.com/v2
-kind: CatalogSourceConfigs
-metadata:
-  name: bar

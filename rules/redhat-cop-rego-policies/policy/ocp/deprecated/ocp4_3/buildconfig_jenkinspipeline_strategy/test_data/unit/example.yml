@@ -1,7 +1,0 @@
-kind: BuildConfig
-apiVersion: build.openshift.io/v1
-metadata:
-  name: jenkinspipeline
-spec:
-  strategy:
-    jenkinsPipelineStrategy: {}
