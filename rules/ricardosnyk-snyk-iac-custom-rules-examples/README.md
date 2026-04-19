@@ -1,9 +1,7 @@
 # ricardosnyk/snyk-iac-custom-rules-examples
 
 - Upstream: https://github.com/ricardosnyk/snyk-iac-custom-rules-examples
-- License: Apache-2.0 (preserved as `LICENSE`)
 - Commit SHA at import: `663d064a5c935c325838a34604e154a2fba2a6b7`
-- Imported files: 10 `.rego` files from `lib/` and `rules/` (tests stripped)
 
 ## What these rules cover
 
@@ -46,4 +44,4 @@ vulnetix scan --rule Vulnetix/community-rules
 
 ## Attribution
 
-Copyright the snyk-iac-custom-rules-examples contributors. Licensed under the Apache License, Version 2.0. See `LICENSE`.
+Copyright the snyk-iac-custom-rules-examples contributors. Licensed under the Apache License, Version 2.0.

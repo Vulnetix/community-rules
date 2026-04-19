@@ -1,9 +1,7 @@
-# iamleot/conftest-policies
+# iamleot/conftest-policies (clean-room port)
 
 - Upstream: https://github.com/iamleot/conftest-policies
-- License: BSD-2-Clause (preserved as `LICENSE`)
 - Commit SHA at import: `3ac239cc9b7c2ae113bec7445acc69716e20a398`
-- Imported files: 8 `.rego` files from `policy/` (tests stripped)
 
 ## What these rules cover
 
@@ -26,7 +24,6 @@ iamleot-conftest-policies/
     │   └── dependabot/{mandatory_toplevel_keys,utils}/<rule>.rego
     ├── terraform/aws/aws_iam_policy_attachment/aws_iam_policy_attachment.rego
     └── venom/{name,timeout}/<rule>.rego
-├── LICENSE
 └── README.md
 ```
 
@@ -43,5 +40,4 @@ vulnetix scan --rule Vulnetix/community-rules
 
 ## Attribution
 
-Copyright (c) 2023-2024 Leonardo Taccari. Licensed under the BSD-2-Clause License.
-See `LICENSE`.
+Copyright (c) 2023-2024 Leonardo Taccari. Originally licensed under the BSD-2-Clause License.

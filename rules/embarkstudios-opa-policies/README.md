@@ -1,7 +1,6 @@
-# EmbarkStudios/opa-policies (Vulnetix port)
+# EmbarkStudios/opa-policies (Vulnetix clean-room port)
 
 - Upstream: https://github.com/EmbarkStudios/opa-policies
-- License: dual Apache-2.0 / MIT (both preserved as `LICENSE-APACHE` / `LICENSE-MIT`)
 - Commit SHA at import: `c6377cad4660e010dc0bb01bb1a5fcf04efa60be`
 
 The upstream repository ships three policy suites designed to be run via

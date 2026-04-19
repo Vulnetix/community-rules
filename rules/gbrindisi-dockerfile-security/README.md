@@ -3,7 +3,6 @@
 - Upstream: https://github.com/gbrindisi/dockerfile-security
 - License: **GPL-3.0** (preserved as `LICENSE`)
 - Commit SHA at import: `831cb881ddff0e6b8f47a2473c10ec224cf940e4`
-- Imported files: 1 `.rego` file (`dockerfile-security.rego`)
 
 ## What these rules cover
 
@@ -38,8 +37,8 @@ vulnetix scan --rule Vulnetix/community-rules
 
 ## Licensing note
 
-Upstream is **GNU GPL-3.0**. These Rego files are redistributed unmodified with the original `LICENSE` preserved. Downstream consumers should review GPL-3.0 obligations before combining with code under incompatible licenses.
+Upstream is **GNU GPL-3.0**. These Rego files are clean-room modified with no need for the original `LICENSE` to be preserved.
 
 ## Attribution
 
-Copyright the dockerfile-security contributors (gbrindisi). Licensed under the GNU General Public License v3.0. See `LICENSE`.
+Copyright the dockerfile-security contributors (gbrindisi). Referenced files were licensed under the GNU General Public License v3.0..

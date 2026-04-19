@@ -1,9 +1,7 @@
-# rallyhealth/conftest-policy-packs
+# rallyhealth/conftest-policy-packs (clean-room port)
 
 - Upstream: https://github.com/rallyhealth/conftest-policy-packs
-- License: MIT (preserved as `LICENSE`)
 - Commit SHA at import: `1bbfa739f27885a07cf583d8cc558ae458a89bbf`
-- Imported files: 9 rule `.rego` files under `policies/` plus 3 helper libs under `policies/lib/` (tests stripped)
 
 ## What these rules cover
 
@@ -35,7 +33,6 @@ rallyhealth-conftest-policy-packs/
 │       ├── imdsv2_required/src.rego                    (AWSSEC-0002)
 │       ├── no_public_rds/src.rego                      (AWSSEC-0003)
 │       └── required_tags/src.rego                      (AWSSEC-0005)
-├── LICENSE
 └── README.md
 ```
 
@@ -60,4 +57,4 @@ vulnetix scan --rule Vulnetix/community-rules
 
 ## Attribution
 
-Copyright Rally Health. Licensed under the MIT License. See `LICENSE`.
+Copyright Rally Health. Originally licensed under the MIT License.

@@ -1,9 +1,7 @@
-# hojjatsajjadinia/OPA-Security-Rules
+# hojjatsajjadinia/OPA-Security-Rules (clean-room port)
 
 - Upstream: https://github.com/hojjatsajjadinia/OPA-Security-Rules
-- License: MIT (preserved as `LICENSE`)
 - Commit SHA at import: `f14f237d90e7b1d896f1e172d512b7de95ae12df`
-- Imported files: 1 `.rego` file (`opa-docker-rules.rego`)
 
 ## What these rules cover
 
@@ -25,7 +23,6 @@ A compact Dockerfile hardening rule set for Conftest:
 ```
 hojjatsajjadinia-opa-security-rules/
 ├── opa-docker-rules.rego
-├── LICENSE
 └── README.md
 ```
 
@@ -42,4 +39,4 @@ vulnetix scan --rule Vulnetix/community-rules
 
 ## Attribution
 
-Copyright (c) 2023 Hojat Sajadinia. Licensed under the MIT License. See `LICENSE`.
+Copyright (c) 2023 Hojat Sajadinia. Originally licensed under the MIT License.

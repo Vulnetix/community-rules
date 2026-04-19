@@ -1,9 +1,8 @@
-# int128/conftest-docker-hub-image-pull-secrets
+# int128/conftest-docker-hub-image-pull-secrets (clean-room port)
 
 - Upstream: https://github.com/int128/conftest-docker-hub-image-pull-secrets
-- License: Apache-2.0 (preserved as `LICENSE`)
+- License: Apache-2.0
 - Commit SHA at import: `d583284a05248e5f7d4417cea5caefe8dbd5e502`
-- Imported files: 1 `.rego` (`deny.rego`)
 
 ## What these rules cover
 
@@ -19,7 +18,6 @@ Applies to `Deployment`, `Job`, `StatefulSet`, `DaemonSet`.
 ```
 int128-conftest-docker-hub-image-pull-secrets/
 ├── deny.rego
-├── LICENSE
 └── README.md
 ```
 

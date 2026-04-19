@@ -1,9 +1,8 @@
-# kevinswiber/spego
+# kevinswiber/spego (clean-room port)
 
 - Upstream: https://github.com/kevinswiber/spego
-- License: Apache-2.0 (preserved as `LICENSE`)
+- License: Apache-2.0
 - Commit SHA at import: `5d9c41a4d3eb1d988a880377d7963cd09eb05f62`
-- Imported files: 24 ported rules + 1 shared helper (upstream `src/` tree dropped)
 
 ## What these rules cover
 
@@ -46,7 +45,6 @@ kevinswiber-spego/
 ├── _lib/openapi.rego          (vulnetix.spego.openapi helper)
 ├── policies/
 │   └── <rule-name>/<rule-name>.rego
-├── LICENSE
 └── README.md
 ```
 

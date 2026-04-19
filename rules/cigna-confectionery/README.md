@@ -15,15 +15,15 @@ This port rewrites each rule to the Vulnetix custom SAST schema:
 - A `metadata` object (`id`, `name`, `description`, `help_uri`, `languages`, `severity`, `level`, `kind`, `cwe`, `capec`, `attack_technique`, `cvssv4`, `cwss`, `tags`)
 - A `findings contains finding if { ... }` set rule that walks `input.file_contents` (map of file path → raw file contents)
 
-A shared helper package at `_lib/tf.rego` (`package vulnetix.cigna.tf`) does regex-based HCL extraction — resource/data blocks, attributes, nested sub-blocks, IAM policy heuristics — so each rule stays small and focused.
+A shared helper package at `rules/_lib/tf.rego` (`package vulnetix.cigna.tf`) does regex-based HCL extraction — resource/data blocks, attributes, nested sub-blocks, IAM policy heuristics — so each rule stays small and focused.
 
 ## Layout
 
 ```
 cigna-confectionery/
-├── _lib/
-│   └── tf.rego                    # shared HCL regex helpers
 ├── rules/
+│   ├── _lib/
+│   │   └── tf.rego                    # shared HCL regex helpers
 │   └── terraform/
 │       ├── aws/<service>/<rule>.rego    # ported Vulnetix rules
 │       └── azure/<service>/<rule>.rego  # ported Vulnetix rules
@@ -31,7 +31,7 @@ cigna-confectionery/
 └── README.md
 ```
 
-Upstream directories `examples/`, `rules/terraform/regula.rego`, `rules/terraform/utilities/` and `rules/terraform/aws/vpc/utilities/` are left in place but are **not** loaded by the ported rules — only `_lib/` and the `*.rego` files inside `rules/terraform/aws/` and `rules/terraform/azure/` are part of the port.
+Upstream cruft (`examples/`, `rules/terraform/regula.rego`, the Regula utilities subtrees) has been removed; only ported Vulnetix-schema rules and their helpers remain.
 
 ## Rule ID scheme
 
@@ -65,7 +65,7 @@ Given those trade-offs, false positives and false negatives are possible where t
 
 ```bash
 cd rules/cigna-confectionery
-opa check _lib $(find rules/terraform/aws rules/terraform/azure -name '*.rego' -not -path '*/utilities/*')
+opa check rules
 ```
 
 ## Attribution

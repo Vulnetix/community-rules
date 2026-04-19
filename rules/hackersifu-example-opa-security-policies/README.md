@@ -3,7 +3,6 @@
 - Upstream: https://github.com/hackersifu/example_opa_security_policies
 - License: Apache-2.0 (preserved as `LICENSE`)
 - Commit SHA at import: `d8744fe6cd4a27ffe9f694b079bad6d59d299148`
-- Imported files: 4 `.rego` files from upstream `sample-policies/`
 
 ## What these rules cover
 
