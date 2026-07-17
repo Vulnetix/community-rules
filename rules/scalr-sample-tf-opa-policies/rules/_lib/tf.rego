@@ -89,3 +89,12 @@ array_contains(arr, elem) if {
 	some x in arr
 	x == elem
 }
+
+# 1-based line number of the first occurrence of `needle` in `content`.
+# Falls back to line 1 when the needle is not found (never fabricates
+# a position past the end of the file).
+line_of(content, needle) := line if {
+	idx := indexof(content, needle)
+	idx >= 0
+	line := count(split(substring(content, 0, idx), "\n"))
+} else := 1

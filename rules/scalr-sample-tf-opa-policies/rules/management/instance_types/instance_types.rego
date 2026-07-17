@@ -36,7 +36,7 @@ findings contains finding if {
 	some block in tf.resource_blocks(content, "aws_instance")
 	val := tf.string_attr(block, "instance_type")
 	not _aws_types[val]
-	finding := _type_finding(path, tf.resource_address(block), "instance_type", val)
+	finding := _type_finding(path, tf.resource_address(block), "instance_type", val, tf.line_of(content, block))
 }
 
 findings contains finding if {
@@ -46,7 +46,7 @@ findings contains finding if {
 	some block in tf.resource_blocks(content, t)
 	val := tf.string_attr(block, "vm_size")
 	not _azure_sizes[val]
-	finding := _type_finding(path, tf.resource_address(block), "vm_size", val)
+	finding := _type_finding(path, tf.resource_address(block), "vm_size", val, tf.line_of(content, block))
 }
 
 findings contains finding if {
@@ -55,17 +55,17 @@ findings contains finding if {
 	some block in tf.resource_blocks(content, "google_compute_instance")
 	val := tf.string_attr(block, "machine_type")
 	not _gcp_machines[val]
-	finding := _type_finding(path, tf.resource_address(block), "machine_type", val)
+	finding := _type_finding(path, tf.resource_address(block), "machine_type", val, tf.line_of(content, block))
 }
 
-_type_finding(path, address, key, value) := finding if {
+_type_finding(path, address, key, value, line) := finding if {
 	finding := {
 		"rule_id": metadata.id,
 		"message": sprintf("%s %s %q is not in the allow-list.", [address, key, value]),
 		"artifact_uri": path,
 		"severity": "low",
 		"level": "warning",
-		"start_line": 1,
+		"start_line": line,
 		"snippet": value,
 	}
 }

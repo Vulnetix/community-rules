@@ -42,7 +42,7 @@ findings contains finding if {
 	some block in blocks
 	region := tf.string_attr(block, "region")
 	not _aws_regions[region]
-	finding := _place_finding(path, sprintf("provider.aws (region=%s)", [region]), region)
+	finding := _place_finding(path, sprintf("provider.aws (region=%s)", [region]), region, tf.line_of(content, block))
 }
 
 findings contains finding if {
@@ -52,7 +52,7 @@ findings contains finding if {
 	some block in azure_types
 	location := tf.string_attr(block, "location")
 	not _azure_locations[location]
-	finding := _place_finding(path, tf.resource_address(block), location)
+	finding := _place_finding(path, tf.resource_address(block), location, tf.line_of(content, block))
 }
 
 findings contains finding if {
@@ -62,17 +62,17 @@ findings contains finding if {
 	some block in google_types
 	zone := tf.string_attr(block, "zone")
 	not _gcp_zones[zone]
-	finding := _place_finding(path, tf.resource_address(block), zone)
+	finding := _place_finding(path, tf.resource_address(block), zone, tf.line_of(content, block))
 }
 
-_place_finding(path, address, location) := finding if {
+_place_finding(path, address, location, line) := finding if {
 	finding := {
 		"rule_id": metadata.id,
 		"message": sprintf("%s uses location %q which is not in the allow-list.", [address, location]),
 		"artifact_uri": path,
 		"severity": "medium",
 		"level": "warning",
-		"start_line": 1,
+		"start_line": line,
 		"snippet": location,
 	}
 }

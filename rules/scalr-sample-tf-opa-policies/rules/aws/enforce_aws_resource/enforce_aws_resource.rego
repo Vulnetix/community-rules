@@ -39,11 +39,11 @@ findings contains finding if {
 	not _allowed_resources[t]
 	finding := {
 		"rule_id": metadata.id,
-		"message": sprintf("Resource type %q is not in the allow-list.", [t]),
+		"message": sprintf("Resource type %q (%s) is not in the allow-list.", [t, tf.resource_address(block)]),
 		"artifact_uri": path,
 		"severity": "medium",
 		"level": "warning",
-		"start_line": 1,
+		"start_line": tf.line_of(content, block),
 		"snippet": tf.resource_address(block),
 	}
 }

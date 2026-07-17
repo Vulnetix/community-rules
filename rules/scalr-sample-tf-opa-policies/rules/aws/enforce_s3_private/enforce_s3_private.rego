@@ -36,7 +36,7 @@ findings contains finding if {
 		"artifact_uri": path,
 		"severity": "high",
 		"level": "error",
-		"start_line": 1,
+		"start_line": tf.line_of(content, block),
 		"snippet": tf.resource_name(block),
 	}
 }
