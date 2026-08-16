@@ -1,0 +1,5 @@
+
+# Agent scratch: `.claude/worktrees` holds git worktrees an agent created,
+# not source. They carry no commits main does not already have.
+.claude/
+.vulnetix/
