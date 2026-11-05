@@ -4,3 +4,4 @@
 .claude/
 .vulnetix/
 !.vulnetix/workflow.yaml
+!.vulnetix/workflow.yaml
